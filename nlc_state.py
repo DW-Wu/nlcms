@@ -126,9 +126,15 @@ class LCState_s:
 
 def view_as_lc(x0: np.ndarray, N):
     """Convert (or `view` in numpy terminology) arrays to LCState_s"""
-    return LCState_s(N, x0)
+    return LCState_s(N, x0.ravel())
 
 
-def load_lc(filename, N):
+def save_lc(filename, X: LCState_s):
+    """Save LC state (preserve size N for later retrieval)"""
+    np.save(filename, X.x.reshape([6, X.N, X.N, X.N]))
+
+
+def load_lc(filename):
     """Load state from .npy file and convert to LCState_s class"""
-    return view_as_lc(np.load(filename), N)
+    x = np.load(filename)
+    return view_as_lc(x.ravel(), x.shape[1])

@@ -24,11 +24,9 @@ import scipy
 import scipy.optimize as optimize
 
 from nlc_func import *
-from nlc_plot import *
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
     OUTD = join(os.path.dirname(sys.argv[0]), args.output)
     if not os.path.exists(OUTD):
         os.mkdir(OUTD)
@@ -49,11 +47,11 @@ if __name__ == "__main__":
     if args.init is not None:
         # user-defined initail value (highest priority)
         print("Loading initial value from file...")
-        X = load_lc(args.init, N)
+        X = load_lc(args.init)
     elif os.path.exists(join(OUTD, "solution.npy")) and not args.restart:
         # solution obtained last time
         print("Loading existing solution...")
-        X = load_lc(join(OUTD, "solution.npy"), N)
+        X = load_lc(join(OUTD, "solution.npy"))
     else:
         # reinitialize
         print("Starting iteration from scratch...")
@@ -79,13 +77,12 @@ if __name__ == "__main__":
         X, flag, fvec = FF.grad_descent(X, maxiter=9000, eta=2e-6, tol=1e-6,
                                         bb=True, verbose=1, inspect=True)
     print("Energy = %.6f" % FF.energy(X))
-    np.save(join(OUTD, "solution.npy"), X.x)
+    save_lc(join(OUTD, "solution.npy"), X)
     # print(np.sum(FF.aux.ios3*X.phi))
 
     # Plot
     s = 63
     X_v = X.sine_trans(sz=s)
-    fig = mlab.figure(1)
     xxx = np.arange(1, s + 1) / (s + 1)
     xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
     # Export to matlab format
@@ -97,14 +94,9 @@ if __name__ == "__main__":
                       "q4": X_v.q4.ravel(),
                       "q5": X_v.q5.ravel(),
                       "phi": X_v.phi.ravel()}, do_compression=True)
-    plot_phi(X, figure=fig)
-    mlab.savefig(join(OUTD, "phi.wrl"), figure=fig)
-
-    mlab.clf(fig)
-    dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, density=0.05)
-    write_data(dir_vtk, join(OUTD, "dir.vtp"))
-    # mlab.savefig(join(OUTD, "dir.obj"), figure=fig)
-
-    mlab.clf(fig)
-    biax_vtk = plot_biax(X, figure=fig, N_view=127, phi_thres=.8, color_resolution=16)
-    write_data(biax_vtk, join(OUTD, "biax.vtp"))
+    
+    # Leave plotting to the other script
+    import subprocess
+    subprocess.run(["python3", "nlc_plot.py",
+                    join(OUTD, "solution.npy"),
+                    "-N", str(s), "-o", OUTD])

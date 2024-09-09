@@ -181,12 +181,10 @@ if __name__ == "__main__":
         os.mkdir(OUTD)
 
     # Prepare state
-    x = np.load(args.file)
-    N = int(np.cbrt(len(x) // 6))
-    X = LCState_s(N, x)
+    X = load_lc(args.file)
 
     # Plot
-    s = args.num_view
+    s = int(args.num_view)
     X_v = X.sine_trans(sz=s)
     fig = mlab.figure(1)
     xxx = np.arange(1, s + 1) / (s + 1)
