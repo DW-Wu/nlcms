@@ -5,12 +5,13 @@ import scipy.fft as fft
 
 """Definition of 3D NLC state LdG tensor by Fourier spectral method"""
 
+
 class LCConfig(dict):
     """LdG+PhF model configuration object. Same as python dictionary"""
 
     def __init__(self, **kwargs):
         p_default = {'A': -3900, 'B': 6400, 'C': 3500, 'L': 4e-11,
-                     'N': 23, 'lam': 1e-6, 'vol': 0.04,
+                     'lam': 1e-6, 'vol': 0.04,
                      'alpha': .01,
                      'wv': 15,
                      'wa': 5,

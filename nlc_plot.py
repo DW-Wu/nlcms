@@ -3,19 +3,23 @@ import scipy
 from os.path import join
 from argparse import ArgumentParser
 
-
 # Parse argument first
 # Do not load mayavi engine if only asking for help message
 if __name__ == "__main__":
     parser = ArgumentParser(prog="nlc_plot",
-                        description="Plot 3D NLC state using Mayavi engine")
+                            description="Plot 3D NLC state using Mayavi engine")
     parser.add_argument("file", action="store", help="Input file")
     parser.add_argument("-N", "--num_view", action="store", default=63,
                         help="Grid size of final view")
     parser.add_argument("-o", "--output", action="store", default="out",
                         help="Output folder name")
+    parser.add_argument("--no-biax", action="store_true", default=False,
+                        help="Do not plot biaxiality (which is very large)")
+    parser.add_argument("--no-dir", action="store_true", default=False,
+                        help="Do not plot directors")
+    parser.add_argument("--no-phi", action="store_true", default=False,
+                        help="Do not plot φ contours")
     args = parser.parse_args()
-
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -189,23 +193,17 @@ if __name__ == "__main__":
     fig = mlab.figure(1)
     xxx = np.arange(1, s + 1) / (s + 1)
     xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
-    # Export to matlab format
-    scipy.io.savemat(join(OUTD, "solution.mat"),
-                     {"xx": xx.ravel(), "yy": yy.ravel(), "zz": zz.ravel(),
-                      "q1": X_v.q1.ravel(),
-                      "q2": X_v.q2.ravel(),
-                      "q3": X_v.q3.ravel(),
-                      "q4": X_v.q4.ravel(),
-                      "q5": X_v.q5.ravel(),
-                      "phi": X_v.phi.ravel()}, do_compression=True)
-    plot_phi(X, figure=fig)
-    mlab.savefig(join(OUTD, "phi.wrl"), figure=fig)
+    if not args.no_phi:
+        plot_phi(X, figure=fig)
+        mlab.savefig(join(OUTD, "phi.wrl"), figure=fig)
 
     mlab.clf(fig)
-    dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, density=0.05)
-    write_data(dir_vtk, join(OUTD, "dir.vtp"))
-    # mlab.savefig(join(OUTD, "dir.obj"), figure=fig)
+    if not args.no_dir:
+        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, density=0.05)
+        write_data(dir_vtk, join(OUTD, "dir.vtp"))
+        # mlab.savefig(join(OUTD, "dir.obj"), figure=fig)
 
     mlab.clf(fig)
-    biax_vtk = plot_biax(X, figure=fig, N_view=127, phi_thres=.8, color_resolution=16)
-    write_data(biax_vtk, join(OUTD, "biax.vtp"))
+    if not args.no_biax:
+        biax_vtk = plot_biax(X, figure=fig, N_view=127, phi_thres=.8, color_resolution=16)
+        write_data(biax_vtk, join(OUTD, "biax.vtp"))

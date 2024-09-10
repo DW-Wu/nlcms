@@ -1,19 +1,19 @@
 from argparse import ArgumentParser
 
+parser = ArgumentParser(prog="nlcms",
+                        description="Diffuse-interface LdG model")
+parser.add_argument('-c', '--config', action="store", default=None,
+                    help="Config file (see LCConfig definition for format)")
+parser.add_argument('-o', '--output', action="store", default='out',
+                    help="Output directory")
+parser.add_argument('-r', '--restart', action="store_true", default=False,
+                    help="Whether to restart iteration (otherwise use stored initial value)")
+parser.add_argument('-i', '--init', action="store", default=None,
+                    help="Initial value as .npy file")
 
 if __name__ == "__main__":
-    parser = ArgumentParser(prog="nlcms",
-                            description="Diffuse-interface LdG model")
-    parser.add_argument('-c', '--config', action="store", default=None,
-                        help="Config file (see LCConfig definition for format)")
-    parser.add_argument('-o', '--output', action="store", default='out',
-                        help="Output directory")
-    parser.add_argument('-r', '--restart', action="store_true", default=False,
-                        help="Whether to restart iteration (otherwise use stored initial value)")
-    parser.add_argument('-i', '--init', action="store", default=None,
-                        help="Initial value as .npy file")
+    # Parse args first. Avoid loading modules if -h flag is passed
     args = parser.parse_args()
-
 
 import sys, os
 from os.path import join
@@ -25,7 +25,6 @@ import scipy.optimize as optimize
 
 from nlc_func import *
 
-
 if __name__ == "__main__":
     OUTD = join(os.path.dirname(sys.argv[0]), args.output)
     if not os.path.exists(OUTD):
@@ -36,7 +35,7 @@ if __name__ == "__main__":
     np.random.seed(20240909)
     FF = LCFunc_s()
     # Default config for radial state
-    c0 = LCConfig(A=-1500, N=N, lam=1e-6, vol=0.2,
+    c0 = LCConfig(A=-1500, lam=1e-6, vol=0.2,
                   alpha=1. / 64, wv=10, wp=1, wa=5)
     if args.config is not None:
         c0.update(load_lc_config(args.config))
@@ -94,9 +93,10 @@ if __name__ == "__main__":
                       "q4": X_v.q4.ravel(),
                       "q5": X_v.q5.ravel(),
                       "phi": X_v.phi.ravel()}, do_compression=True)
-    
+
     # Leave plotting to the other script
     import subprocess
+
     subprocess.run(["python3", "nlc_plot.py",
                     join(OUTD, "solution.npy"),
                     "-N", str(s), "-o", OUTD])
