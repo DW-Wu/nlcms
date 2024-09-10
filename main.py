@@ -25,6 +25,9 @@ import scipy.optimize as optimize
 
 from nlc_func import *
 
+# python executable name (depends on platform)
+PY_EXE = "./Scripts/python" if sys.platform == "win32" else "python3"
+
 if __name__ == "__main__":
     OUTD = join(os.path.dirname(sys.argv[0]), args.output)
     if not os.path.exists(OUTD):
@@ -97,6 +100,5 @@ if __name__ == "__main__":
     # Leave plotting to the other script
     import subprocess
 
-    subprocess.run(["python3", "nlc_plot.py",
-                    join(OUTD, "solution.npy"),
+    subprocess.run([PY_EXE, "nlc_plot.py", join(OUTD, "solution.npy"),
                     "-N", str(s), "-o", OUTD])
