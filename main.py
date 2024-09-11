@@ -10,6 +10,8 @@ parser.add_argument('-r', '--restart', action="store_true", default=False,
                     help="Whether to restart iteration (otherwise use stored initial value)")
 parser.add_argument('-i', '--init', action="store", default=None,
                     help="Initial value as .npy file")
+parser.add_argument('-s', '--silent', action="store_true", default=False,
+                    help="Silent run (no printed messages)")
 
 if __name__ == "__main__":
     # Parse args first. Avoid loading modules if -h flag is passed
@@ -42,21 +44,26 @@ if __name__ == "__main__":
                   alpha=1. / 64, wv=10, wp=1, wa=5)
     if args.config is not None:
         c0.update(load_lc_config(args.config))
-    FF.reset_conf(c0, show=True)
+    FF.reset_conf(c0, show=not args.silent)
     FF.get_aux(N)
     FF.export_conf(join(OUTD, "conf.json"))
     # Initial value
     if args.init is not None:
         # user-defined initail value (highest priority)
-        print("Loading initial value from file...")
+        if not args.silent:
+            print("Loading initial value from file...")
         X = load_lc(args.init)
+        N = X.N
     elif os.path.exists(join(OUTD, "solution.npy")) and not args.restart:
         # solution obtained last time
-        print("Loading existing solution...")
+        if not args.silent:
+            print("Loading existing solution...")
         X = load_lc(join(OUTD, "solution.npy"))
+        N = X.N
     else:
         # reinitialize
-        print("Starting iteration from scratch...")
+        if not args.silent:
+            print("Starting iteration from scratch...")
         X = LCState_s(N)
         xx = np.arange(1, N + 1) / N
         # spherical initial value
@@ -77,8 +84,9 @@ if __name__ == "__main__":
                               bb=False, verbose=0)
     if flag <= 0:
         X, flag, fvec = FF.grad_descent(X, maxiter=9000, eta=2e-6, tol=1e-6,
-                                        bb=True, verbose=1, inspect=True)
-    print("Energy = %.6f" % FF.energy(X))
+                                        bb=True, verbose=not args.silent, inspect=True)
+    if not args.silent:
+        print("Energy = %.6f" % FF.energy(X))
     save_lc(join(OUTD, "solution.npy"), X)
     # print(np.sum(FF.aux.ios3*X.phi))
 

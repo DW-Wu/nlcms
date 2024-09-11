@@ -83,7 +83,7 @@ def plot_phi(X: LCState_s, figure=None, levels=5, sz=None):
     return surf
 
 
-def plot_biax(X: LCState_s, figure=None, N_view=None, phi_thres=0.5, color_resolution=8):
+def plot_biax(X: LCState_s, figure=None, N_view=None, phi_thres=0.5):
     """Plot biaxiality order parameter as scalar field in space
     `N_view`: number of grid points along one edge
     `phi_thres`: threshold value of phi (above which grid points are visible)
@@ -205,5 +205,5 @@ if __name__ == "__main__":
 
     mlab.clf(fig)
     if not args.no_biax:
-        biax_vtk = plot_biax(X, figure=fig, N_view=127, phi_thres=.8, color_resolution=16)
+        biax_vtk = plot_biax(X, figure=fig, N_view=127, phi_thres=.8)
         write_data(biax_vtk, join(OUTD, "biax.vtp"))

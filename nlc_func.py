@@ -28,7 +28,7 @@ def solve_cubic(a, b, c, largest=False, maxiter=10):
         x = -np.maximum(1, np.sqrt(np.abs(p) + np.abs(q))) - a / 3  # x0 < smallest root
     for _ in range(maxiter):
         f = x ** 3 + a * x ** 2 + b * x + c
-        if np.max(f) < 1e-10:
+        if np.max(np.abs(f)) < 1e-10:
             # print('Newton successful')
             break
         x -= (x ** 3 + a * x ** 2 + b * x + c) / (3 * x ** 2 + 2 * a * x + b)
