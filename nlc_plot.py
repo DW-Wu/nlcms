@@ -28,7 +28,7 @@ from mayavi import mlab
 from tvtk.api import tvtk, write_data
 
 from nlc_state import *
-from nlc_func import trace_Q2, trace_Q3
+from nlc_func import biaxiality
 
 
 def points_fcc(xlim=(0, 1), ylim=(0, 1), zlim=(0, 1), width=0.01):
@@ -95,9 +95,7 @@ def plot_biax(X: LCState_s, figure=None, N_view=None, phi_thres=0.5):
     xxx = np.arange(1, N_view + 1) / (1 + N_view)
     xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
     X_v = X.sine_trans(sz=N_view)
-    trQ2 = trace_Q2(X_v.q1, X_v.q2, X_v.q3, X_v.q4, X_v.q5)
-    trQ3 = trace_Q3(X_v.q1, X_v.q2, X_v.q3, X_v.q4, X_v.q5)
-    biax = 1 - 6 * trQ3 ** 2 / (trQ2 ** 3 + 1e-14)
+    biax = biaxiality(X_v.q1, X_v.q2, X_v.q3, X_v.q4, X_v.q5)
     mask = (X_v.phi > phi_thres)
     if not np.any(mask):
         raise Warning("No φ")
@@ -131,9 +129,7 @@ def plot_director(X: LCState_s, figure=None,
     zz = zz[mask]
     length = len(xx)
     q1, q2, q3, q4, q5, phi = X.values_x(xx, yy, zz)
-    trQ2 = trace_Q2(q1, q2, q3, q4, q5)
-    trQ3 = trace_Q3(q1, q2, q3, q4, q5)
-    biax = 1 - 6 * trQ3 ** 2 / (trQ2 ** 3 + 1e-14)
+    biax = biaxiality(q1, q2, q3, q4, q5)
     c = cm.viridis(Normalize()(biax))
     # V=np.zeros([length,3]) # storage for eigenvectors
     # unit sphere coordinates

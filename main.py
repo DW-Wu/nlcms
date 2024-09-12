@@ -23,7 +23,7 @@ from os.path import join
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy
-import scipy.optimize as optimize
+from scipy.optimize import fmin_cg
 
 from nlc_func import *
 
@@ -74,10 +74,12 @@ if __name__ == "__main__":
     FF.project(X, c0['vol'])
 
     # Solve with scipy's routines
-    # x=optimize.fmin_cg(FF.energy_vec,X.x,fprime=FF.grad_vec,args=(N,True),gtol=1e-6,maxiter=20000,c1=-1e-6)
-    # print(norm(FF.grad_vec(x,N)))
-    # X=LCState_s(N,x)
-    # FF.project(X,c0['vol'])
+    x = fmin_cg(FF.energy_vec, X.x, fprime=FF.grad_vec,
+                args=(N, True),
+                gtol=1e-6,
+                maxiter=5000)
+    X = LCState_s(N, x)
+    FF.project(X, c0['vol'])
 
     # solve for state
     X, flag = FF.grad_descent(X, maxiter=100, eta=2e-6, tol=1e-6,

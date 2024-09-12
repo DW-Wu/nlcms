@@ -1,6 +1,5 @@
 import json
 import numpy as np
-from numpy.linalg import norm
 import scipy.fft as fft
 
 """Definition of 3D NLC state LdG tensor by Fourier spectral method"""
