@@ -35,7 +35,7 @@ def points_fcc(xlim=(0, 1), ylim=(0, 1), zlim=(0, 1), width=0.01):
     """Compute point cloud from face-centered cubic packing
     Layers are parallel to the yOz plane"""
     # radius of circumsphere
-    R = .5 * np.sqrt((xlim[1] - xlim[0]) ** 2 + (ylim[1] - ylim[0]) ** 2 + (zlim[1] - zlim[0]) ** 2)
+    R = .5 * np.sqrt((xlim[1] - xlim[0])**2 + (ylim[1] - ylim[0])**2 + (zlim[1] - zlim[0])**2)
     N_cubes = int(np.sqrt(2) * R / width + 1)  # number of small cubes
     a = width * np.sqrt(2)  # side length of cube cell
     x = np.arange(N_cubes)
@@ -103,13 +103,15 @@ def plot_biax(X: LCState_s, figure=None, N_view=None, phi_thres=0.5):
     yy = yy[mask]
     zz = zz[mask]
     biax = biax[mask]
-    # b_steps = np.linspace(np.min(biax), np.max(biax), color_resolution + 1)
-    # c = cm.RdBu(Normalize()(b_steps))
-    kwargs = dict(extent=[0, 1, 0, 1, 0, 1], figure=figure,
-                  mode='cube', colormap="RdBu", opacity=0.1, reset_zoom=False,
-                  scale_factor=1. / (N_view + 1), scale_mode='none')
-    img = mlab.points3d(xx, yy, zz, biax, **kwargs)
-    return tvtk.to_tvtk(img.actor.actors[0].mapper.input)
+    X = np.transpose(np.vstack([xx, yy, zz]))  # prepare coordinates in column vectors
+    # Construct TVTK point data set
+    pts = tvtk.Points()
+    pts.from_array(X)
+    cel = tvtk.CellArray()
+    cel.from_array([[i] for i in range(len(X))])
+    poly = tvtk.PolyData(points=pts, polys=cel)
+    poly.point_data.scalars = biax
+    return poly
 
 
 def plot_director(X: LCState_s, figure=None,
@@ -119,7 +121,7 @@ def plot_director(X: LCState_s, figure=None,
     Q tensor represented by ellipsoids"""
     if figure is None:
         figure = mlab.gcf()
-    w = 1. / X.N / density ** (1 / 3)
+    w = 1. / X.N / density**(1 / 3)
     xx, yy, zz = points_fcc(width=w)  # FCC point cloud
     phi = X.values_x(xx, yy, zz, phi_only=True)
     # restrict to phi>threshold
