@@ -29,18 +29,18 @@ def solve_cubic(a, b, c, largest=False, maxiter=10):
     """Solve cubic equation x^3+ax^2+bx+c=0 for largest/smallest root
     p,q may be vectors so multiple equations can be solved simultaneously"""
     # equivalent to y^2+py+q with y=x+a/3
-    p = (3 * b - a ** 2) / 3
-    q = (9 * a * b - 27 * c - 2 * a ** 3) / 27
+    p = (3 * b - a**2) / 3
+    q = (9 * a * b - 27 * c - 2 * a**3) / 27
     if largest:
         x = np.maximum(1, np.sqrt(np.abs(p) + np.abs(q))) - a / 3  # x0 > largest root
     else:
         x = -np.maximum(1, np.sqrt(np.abs(p) + np.abs(q))) - a / 3  # x0 < smallest root
     for _ in range(maxiter):
-        f = x ** 3 + a * x ** 2 + b * x + c
+        f = x**3 + a * x**2 + b * x + c
         if np.max(np.abs(f)) < 1e-10:
             # print('Newton successful')
             break
-        x -= (x ** 3 + a * x ** 2 + b * x + c) / (3 * x ** 2 + 2 * a * x + b)
+        x -= (x**3 + a * x**2 + b * x + c) / (3 * x**2 + 2 * a * x + b)
     return x
 
 
@@ -55,12 +55,12 @@ def trace_Q3(q1, q2, q3, q4, q5):
 
 def biaxiality(q1, q2, q3, q4, q5):
     """tr(Q^3)^2/tr(Q^2)^3, which is between 0 and 1/6"""
-    return 1 - 6 * trace_Q3(q1, q2, q3, q4, q5) ** 2 / (trace_Q2(q1, q2, q3, q4, q5) ** 3 + 1e-14)
+    return 1 - 6 * trace_Q3(q1, q2, q3, q4, q5)**2 / (trace_Q2(q1, q2, q3, q4, q5)**3 + 1e-14)
 
 
 def Q_eigval(q1, q2, q3, q4, q5, largest=False):
     # coefficients
-    p = -(q1 ** 2 + q2 ** 2 + 3 * q3 ** 2 + q4 ** 2 + q5 ** 2)
+    p = -(q1**2 + q2**2 + 3 * q3**2 + q4**2 + q5**2)
     q = -trace_Q3(q1, q2, q3, q4, q5) / 3
     return solve_cubic(np.zeros_like(q1), p, q, largest)
 
@@ -102,10 +102,10 @@ class LCFunc_s:
         # Compute nondimensional coefficients
         barlam = lam * np.sqrt(C / L)
         sp = (B + np.sqrt(B * B - 24 * A * C)) / 4 / C  # s_plus
-        bmin = sp ** 2 * (9 * A - B * sp) / 54  # minimum of bulk
+        bmin = sp**2 * (9 * A - B * sp) / 54  # minimum of bulk
         w2 = -bmin / alpha / C
         beta = 4 * (alpha + np.sqrt(alpha * (alpha + .25)))
-        wv = max(wv, (B ** 2 / 27 - A * C) / ((C * (1 - beta)) ** 2))  # to induce strict minima
+        wv = max(wv, (B**2 / 27 - A * C) / ((C * (1 - beta))**2))  # to induce strict minima
 
         # Display the functional
         if show:
@@ -166,7 +166,7 @@ class LCFunc_s:
             # N*N zero padding
             self.pad = np.zeros(N * N)
             # gradient square coefficients
-            self.c_lap = (.125 * np.pi ** 2) * (k1 ** 2 + k2 ** 2 + k3 ** 2)
+            self.c_lap = (.125 * np.pi**2) * (k1**2 + k2**2 + k3**2)
             # int of sin(kπx): 2/kπ if k odd else 0
             ios = 2. / np.pi / one2n
             ios[1::2] = 0.
@@ -175,7 +175,7 @@ class LCFunc_s:
             # self.w_col=w_1d[k1-1]*w_1d[k2-1]*w_1d[k3-1]
             # integral of sines in 3d
             self.ios3 = ios[k1 - 1] * ios[k2 - 1] * ios[k3 - 1]
-            self.ios3_norm2 = norm(ios) ** 6
+            self.ios3_norm2 = norm(ios)**6
 
     def get_aux(self, N: int):
         self.aux = LCFunc_s.LCAux(N)
@@ -195,7 +195,7 @@ class LCFunc_s:
         ios3 = self.aux.ios3.ravel()
         r = self.aux.ios3_norm2
         xp = np.copy(x)
-        xp[5 * N ** 3:] -= (np.dot(x[5 * N ** 3:], ios3) - v0) * ios3 / r
+        xp[5 * N**3:] -= (np.dot(x[5 * N**3:], ios3) - v0) * ios3 / r
         return xp
 
     def padded_dct_and_dst(self, x, axis):
@@ -223,7 +223,7 @@ class LCFunc_s:
 
     def energy(self, x: LCState_s):
         N = x.N
-        h3 = 1. / (N + 1) ** 3
+        h3 = 1. / (N + 1)**3
         x_v = x.sine_trans()
         # q1, q2, q3, q4, q5, phi = x.values()
         if self.aux is None:
@@ -231,29 +231,29 @@ class LCFunc_s:
         E = 0.
         # elastic energy
         E += self.we * \
-             np.sum(self.aux.c_lap * (x.q1 ** 2 + x.q2 ** 2 + 3 * x.q3 ** 2
-                                      + x.q4 ** 2 + x.q5 ** 2))
+             np.sum(self.aux.c_lap * (x.q1**2 + x.q2**2 + 3 * x.q3**2
+                                      + x.q4**2 + x.q5**2))
         # bulk energy
         trQ2 = trace_Q2(x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5)
         trQ3 = trace_Q3(x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5)
-        bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2 ** 2
+        bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2
         E += self.wb * (h3 * np.sum(bulk) - self.bmin)
         # mixing energy laplacian
         E += self.we * self.wp1 * .5 * \
-             np.sum(self.aux.c_lap * x.phi ** 2)
+             np.sum(self.aux.c_lap * x.phi**2)
         # mixing energy double-well (MODIFIED!!!)
         E += self.wb * self.wp0 * h3 * \
-             np.sum((1. - x_v.phi) ** 2
-                    * (.25 * x_v.phi ** 2 - self.alpha * (2 * x_v.phi + 1)))
+             np.sum((1. - x_v.phi)**2
+                    * (.25 * x_v.phi**2 - self.alpha * (2 * x_v.phi + 1)))
         # anchoring energy
         phix = self.padded_dct_and_dst(self.aux.k1 * np.pi * x.phi, axis=0)
         phiy = self.padded_dct_and_dst(self.aux.k2 * np.pi * x.phi, axis=1)
         phiz = self.padded_dct_and_dst(self.aux.k3 * np.pi * x.phi, axis=2)
         x1, x2, x3 = Qtimes(x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5, phix, phiy, phiz)
-        anch_0 = x1 ** 2 + x2 ** 2 + x3 ** 2 + self.sp * 2 / 3 * (x1 * phix + x2 * phiy + x3 * phiz)
-        E += self.we * self.wa * (h3 * np.sum(anch_0) + self.sp ** 2 / 9 * np.sum(self.aux.c_lap * x.phi ** 2))
+        anch_0 = x1**2 + x2**2 + x3**2 + self.sp * 2 / 3 * (x1 * phix + x2 * phiy + x3 * phiz)
+        E += self.we * self.wa * (h3 * np.sum(anch_0) + self.sp**2 / 9 * np.sum(self.aux.c_lap * x.phi**2))
         # void energy
-        v = (1 - x_v.phi) ** 2 * trQ2
+        v = (1 - x_v.phi)**2 * trQ2
         E += self.wb * self.wv * .5 * h3 * np.sum(v)
         return E
 
@@ -268,7 +268,7 @@ class LCFunc_s:
         `nonlin_only`: whether to evaluate only the nonlinear terms (i.e. excluding the
                        Laplacians)"""
         N = x.N
-        h3 = 1. / (N + 1) ** 3
+        h3 = 1. / (N + 1)**3
         # q1, q2, q3, q4, q5, phi = x.values()
         x_v = x.sine_trans()
         q1, q2, q3, q4, q5, phi = x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5, x_v.phi
@@ -312,10 +312,10 @@ class LCFunc_s:
         x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, phix, phiy, phiz)
         g_v.q1[:] += h3 * self.we * self.wa * \
                      (2 * (x1 * phix - x2 * phiy)
-                      + self.sp * 2 / 3 * (phix ** 2 - phiy ** 2))
+                      + self.sp * 2 / 3 * (phix**2 - phiy**2))
         g_v.q3[:] += h3 * self.we * self.wa * \
                      (2 * (-x1 * phix - x2 * phiy + 2 * x3 * phiz)
-                      + self.sp * 2 / 3 * (-phix ** 2 - phiy ** 2 + 2 * phiz ** 2))
+                      + self.sp * 2 / 3 * (-phix**2 - phiy**2 + 2 * phiz**2))
         g_v.q2[:] += h3 * self.we * self.wa * \
                      (2 * (x1 * phiy + x2 * phix) + self.sp * 4 / 3 * phix * phiy)
         g_v.q4[:] += h3 * self.we * self.wa * \
@@ -326,17 +326,18 @@ class LCFunc_s:
                                                        2 * x1 + self.sp * 4 / 3 * phix,
                                                        2 * x2 + self.sp * 4 / 3 * phiy,
                                                        2 * x3 + self.sp * 4 / 3 * phiz)
-        g.phi[:] += self.we * self.wa * \
-                    (h3 * np.pi * (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
-                                   + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
-                                   + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
-                     + self.sp ** 2 * 2 / 9 * self.aux.c_lap * x.phi)
+        g.phi[:] += self.we * self.wa * h3 * np.pi * \
+                    (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
+                     + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
+                     + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
+        if not nonlin_only:
+            g.phi[:] += self.we * self.wa * self.sp**2 * 2 / 9 * self.aux.c_lap * x.phi
         # void
-        g_v.q1[:] += self.wb * self.wv * h3 * 2 * (1 - phi) ** 2 * q1
-        g_v.q2[:] += self.wb * self.wv * h3 * 2 * (1 - phi) ** 2 * q2
-        g_v.q3[:] += self.wb * self.wv * h3 * 6 * (1 - phi) ** 2 * q3
-        g_v.q4[:] += self.wb * self.wv * h3 * 2 * (1 - phi) ** 2 * q4
-        g_v.q5[:] += self.wb * self.wv * h3 * 2 * (1 - phi) ** 2 * q5
+        g_v.q1[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q1
+        g_v.q2[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q2
+        g_v.q3[:] += self.wb * self.wv * h3 * 6 * (1 - phi)**2 * q3
+        g_v.q4[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q4
+        g_v.q5[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q5
         g_v.phi[:] += self.wb * self.wv * h3 * (phi - 1) * trQ2
 
         # chain rule: apply (adjoint) DST to value derivatives
@@ -372,7 +373,7 @@ class LCFunc_s:
             x_v = x.sine_trans()  # values
             dx = view_as_lc(v, N)  # variation
             dx_v = dx.sine_trans()  # variation values
-            h3 = 1. / (N + 1) ** 3
+            h3 = 1. / (N + 1)**3
             dg = LCState_s(N)  # gradient variation
             dg_v = LCState_s(N)  # gradient variation w.r.t. values
 
@@ -462,9 +463,9 @@ class LCFunc_s:
                          (h3 * np.pi * (self.aux.k1 * self.padded_dct_and_dst(dd_a0_d_phix, axis=0)
                                         + self.aux.k2 * self.padded_dct_and_dst(dd_a0_d_phiy, axis=1)
                                         + self.aux.k3 * self.padded_dct_and_dst(dd_a0_d_phiz, axis=2))
-                          + self.sp ** 2 * 2 / 9 * self.aux.c_lap * dx.phi)
+                          + self.sp**2 * 2 / 9 * self.aux.c_lap * dx.phi)
             # void
-            _1mphi2 = (1 - x_v.phi) ** 2
+            _1mphi2 = (1 - x_v.phi)**2
             d1mphi2 = -2 * (1 - x_v.phi) * dx_v.phi
             dg_v.q1[:] += self.wb * self.wv * h3 * \
                           2 * (d1mphi2 * x_v.q1 + _1mphi2 * dx_v.q1)
@@ -489,7 +490,7 @@ class LCFunc_s:
         N = x.N
         if self.aux is None:
             self.aux = LCFunc_s.LCAux(N)
-        return LinearOperator(dtype=float, shape=(6 * N ** 3, 6 * N ** 3),
+        return LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
                               matvec=_matvec)
 
     def grad_descent(self,
@@ -566,14 +567,14 @@ def test_hess(FF: LCFunc_s, X: LCState_s, n=5):
 
 
 def test_bulk(FF: LCFunc_s, n=10):
-    bmin = FF.sp ** 2 * (9 * FF.A - FF.B * FF.sp) / (54 * FF.C)  # minimum of bulk (rescaled)
+    bmin = FF.sp**2 * (9 * FF.A - FF.B * FF.sp) / (54 * FF.C)  # minimum of bulk (rescaled)
     for _ in range(n):
         q1, q2, q3, q4, q5, phi = np.random.randn(6)
         trQ2 = trace_Q2(q1, q2, q3, q4, q5)
         trQ3 = trace_Q3(q1, q2, q3, q4, q5)
-        W = (FF.wb2 / 2 * trQ2 + FF.wb3 / 3 * trQ3 + .25 * trQ2 ** 2) \
-            + FF.wv / 2 * (1 - phi) ** 2 * trQ2 \
-            + FF.wp0 * (1 - phi) ** 2 * (phi ** 2 / 4 - FF.alpha * (2 * phi + 1))
+        W = (FF.wb2 / 2 * trQ2 + FF.wb3 / 3 * trQ3 + .25 * trQ2**2) \
+            + FF.wv / 2 * (1 - phi)**2 * trQ2 \
+            + FF.wp0 * (1 - phi)**2 * (phi**2 / 4 - FF.alpha * (2 * phi + 1))
         if W < bmin:
             print("Bulk is wrong! W=%f, bmin=%f" % (W, bmin))
             return False
@@ -587,7 +588,7 @@ if __name__ == "__main__":
     # Random, but with regularization
     np.random.seed(142)
     FF.get_aux(N)
-    reg = np.exp(-(FF.aux.k1 ** 2 + FF.aux.k2 ** 2 + FF.aux.k3 ** 2) / 2)
+    reg = np.exp(-(FF.aux.k1**2 + FF.aux.k2**2 + FF.aux.k3**2) / 2)
     X.q1[:] = np.random.randn(N, N, N) * reg
     X.q2[:] = np.random.randn(N, N, N) * reg
     X.q3[:] = np.random.randn(N, N, N) * reg

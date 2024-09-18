@@ -12,6 +12,12 @@ parser.add_argument('-i', '--init', action="store", default=None,
                     help="Initial value as .npy file")
 parser.add_argument('-s', '--silent', action="store_true", default=False,
                     help="Silent run (no printed messages)")
+parser.add_argument('-E', '--energy-plot', action="store_true", default=True,
+                    help="Plot energy values over the iteration")
+parser.add_argument('--maxiter', action='store', default=2000,
+                    help="Maximum iteration number")
+parser.add_argument('--matlab', action='store_true', default=False,
+                    help="Export .mat file of state variables")
 
 if __name__ == "__main__":
     # Parse args first. Avoid loading modules if -h flag is passed
@@ -68,25 +74,36 @@ if __name__ == "__main__":
         xx = np.arange(1, N + 1) / N
         # spherical initial value
         xx, yy, zz = np.meshgrid(xx, xx, xx, indexing='ij')
-        r = np.sqrt((xx - .5) ** 2 + (yy - .5) ** 2 + (zz - .5) ** 2)
-        X.phi[:] = 8. * fft.idstn(np.tanh((r - (3 * FF.v0 / 4 / np.pi) ** (1 / 3)) / 0.05), type=1)
+        r = np.sqrt((xx - .5)**2 + (yy - .5)**2 + (zz - .5)**2)
+        X.phi[:] = 8. * fft.idstn(np.tanh((r - (3 * FF.v0 / 4 / np.pi)**(1 / 3)) / 0.05), type=1)
         # X.phi[0, 0, 0] = c0['vol']/FF.aux.ios3[0,0,0]
     FF.project(X, c0['vol'])
 
     # Solve with scipy's routines
-    x = fmin_cg(FF.energy_vec, X.x, fprime=FF.grad_vec,
-                args=(N, True),
-                gtol=1e-6,
-                maxiter=5000)
-    X = LCState_s(N, x)
-    FF.project(X, c0['vol'])
+    # x = fmin_cg(FF.energy_vec, X.x, fprime=FF.grad_vec,
+    #             args=(N, True),
+    #             gtol=1e-6,
+    #             maxiter=5000)
+    # X = LCState_s(N, x)
+    # FF.project(X, c0['vol'])
 
     # solve for state
-    X, flag = FF.grad_descent(X, maxiter=100, eta=2e-6, tol=1e-6,
-                              bb=False, verbose=0)
+    X, flag = FF.grad_descent(X,
+                              maxiter=100,
+                              eta=2e-6,
+                              tol=1e-6,
+                              bb=False,
+                              verbose=0)
     if flag <= 0:
-        X, flag, fvec = FF.grad_descent(X, maxiter=9000, eta=2e-6, tol=1e-6,
-                                        bb=True, verbose=not args.silent, inspect=True)
+        X, flag, fvec = FF.grad_descent(X,
+                                        maxiter=int(args.maxiter),
+                                        eta=1e-5,
+                                        tol=1e-6,
+                                        bb=True,
+                                        verbose=not args.silent, inspect=True)
+        if args.energy_plot:
+            plt.plot(fvec)
+            plt.savefig(join(OUTD, "energy.pdf"))
     if not args.silent:
         print("Energy = %.6f" % FF.energy(X))
     save_lc(join(OUTD, "solution.npy"), X)
@@ -98,14 +115,15 @@ if __name__ == "__main__":
     xxx = np.arange(1, s + 1) / (s + 1)
     xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
     # Export to matlab format
-    scipy.io.savemat(join(OUTD, "solution.mat"),
-                     {"xx": xx.ravel(), "yy": yy.ravel(), "zz": zz.ravel(),
-                      "q1": X_v.q1.ravel(),
-                      "q2": X_v.q2.ravel(),
-                      "q3": X_v.q3.ravel(),
-                      "q4": X_v.q4.ravel(),
-                      "q5": X_v.q5.ravel(),
-                      "phi": X_v.phi.ravel()}, do_compression=True)
+    if args.matlab:
+        scipy.io.savemat(join(OUTD, "solution.mat"),
+                         {"xx": xx.ravel(), "yy": yy.ravel(), "zz": zz.ravel(),
+                          "q1": X_v.q1.ravel(),
+                          "q2": X_v.q2.ravel(),
+                          "q3": X_v.q3.ravel(),
+                          "q4": X_v.q4.ravel(),
+                          "q5": X_v.q5.ravel(),
+                          "phi": X_v.phi.ravel()}, do_compression=True)
 
     # Leave plotting to the other script
     import subprocess
