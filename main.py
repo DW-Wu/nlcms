@@ -18,18 +18,23 @@ parser.add_argument('--maxiter', action='store', default=2000,
                     help="Maximum iteration number")
 parser.add_argument('--matlab', action='store_true', default=False,
                     help="Export .mat file of state variables")
+parser.add_argument('--post', action='store', default="plot", choices=["plot", "eigen"],
+                    help="Postprocessing routine: (plot graphs | compute eigenvalues)")
 
 if __name__ == "__main__":
     # Parse args first. Avoid loading modules if -h flag is passed
     args = parser.parse_args()
 
-import sys, os
+import sys
+import os
 from os.path import join
+import subprocess
 
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy
 from scipy.optimize import fmin_cg
+from scipy.sparse.linalg import lobpcg
 
 from nlc_func import *
 
@@ -42,7 +47,7 @@ if __name__ == "__main__":
         os.mkdir(OUTD)
 
     # a=3
-    N = 31
+    N = 23
     np.random.seed(20240909)
     FF = LCFunc_s()
     # Default config for radial state
@@ -109,13 +114,11 @@ if __name__ == "__main__":
     save_lc(join(OUTD, "solution.npy"), X)
     # print(np.sum(FF.aux.ios3*X.phi))
 
-    # Plot
-    s = 63
-    X_v = X.sine_trans(sz=s)
-    xxx = np.arange(1, s + 1) / (s + 1)
-    xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
     # Export to matlab format
     if args.matlab:
+        X_v = X.sine_trans(sz=63)
+        xxx = np.arange(1, 64) / 64.
+        xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
         scipy.io.savemat(join(OUTD, "solution.mat"),
                          {"xx": xx.ravel(), "yy": yy.ravel(), "zz": zz.ravel(),
                           "q1": X_v.q1.ravel(),
@@ -125,8 +128,17 @@ if __name__ == "__main__":
                           "q5": X_v.q5.ravel(),
                           "phi": X_v.phi.ravel()}, do_compression=True)
 
-    # Leave plotting to the other script
-    import subprocess
-
-    subprocess.run([PY_EXE, "nlc_plot.py", join(OUTD, "solution.npy"),
-                    "-N", str(s), "-o", OUTD])
+    if args.post=="plot":
+        # Leave plotting to the other script
+        subprocess.run([PY_EXE, "nlc_plot.py", join(OUTD, "solution.npy"),
+                        "-N=127", "-o", OUTD])
+    elif args.post=="eigen":
+        H = FF.hess(X)
+        lam, V = lobpcg(H, np.eye(6 * N**3, 3),
+                        Y=np.asmatrix(np.hstack([np.zeros(5 * N**3), FF.aux.ios3.ravel()])).T,
+                        maxiter=int(args.maxiter),
+                        tol=1e-6, largest=False,
+                        verbosityLevel=0)
+        print("Smallest eigenvalues:", lam)
+        # save_lc("eig1.npy",LCState_s(N,V[:,0],copy=True))
+        # save_lc("eig2.npy",LCState_s(N,V[:,1],copy=True))

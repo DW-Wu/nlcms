@@ -9,7 +9,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(prog="nlc_plot",
                             description="Plot 3D NLC state using Mayavi engine")
     parser.add_argument("file", action="store", help="Input file")
-    parser.add_argument("-N", "--num_view", action="store", default=63,
+    parser.add_argument("-N", "--num_view", action="store", default=127,
                         help="Grid size of final view")
     parser.add_argument("-o", "--output", action="store", default="out",
                         help="Output folder name")
@@ -203,5 +203,5 @@ if __name__ == "__main__":
 
     mlab.clf(fig)
     if not args.no_biax:
-        biax_vtk = plot_biax(X, figure=fig, N_view=127, phi_thres=.8)
+        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=.8)
         write_data(biax_vtk, join(OUTD, "biax.vtp"))
