@@ -180,6 +180,11 @@ class LCFunc_s:
     def get_aux(self, N: int):
         self.aux = LCFunc_s.LCAux(N)
 
+    def volume(self, x: LCState_s):
+        if self.aux is None or self.aux.N != x.N:
+            self.aux = LCFunc_s.LCAux(x.N)
+        return np.sum(self.aux.ios3 * x.phi)
+
     def project(self, x: LCState_s, v0):
         """Project phi to `v0`"""
         if self.aux is None or self.aux.N != x.N:
@@ -236,8 +241,8 @@ class LCFunc_s:
         # bulk energy
         trQ2 = trace_Q2(x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5)
         trQ3 = trace_Q3(x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5)
-        bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2
-        E += self.wb * (h3 * np.sum(bulk) - self.bmin)
+        bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2 - self.bmin
+        E += self.wb * (h3 * np.sum(bulk))
         # mixing energy laplacian
         E += self.we * self.wp1 * .5 * \
              np.sum(self.aux.c_lap * x.phi**2)
@@ -263,13 +268,13 @@ class LCFunc_s:
             x = self.project_vec(x, N, self.v0)
         return self.energy(view_as_lc(x, N))
 
-    def grad(self, x: LCState_s, nonlin_only=False):
+    def grad(self, x: LCState_s, part=2):
         """Gradient of functional
-        `nonlin_only`: whether to evaluate only the nonlinear terms (i.e. excluding the
-                       Laplacians)"""
+        `part`: if part==0, evaluate only the linear terms (Laplacians)
+                if part==1, evaluate only the nonlinear terms
+                if part==2, evaluate the whole gradient"""
         N = x.N
         h3 = 1. / (N + 1)**3
-        # q1, q2, q3, q4, q5, phi = x.values()
         x_v = x.sine_trans()
         q1, q2, q3, q4, q5, phi = x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5, x_v.phi
         g = LCState_s(N)  # gradient
@@ -277,68 +282,71 @@ class LCFunc_s:
         if self.aux is None:
             self.aux = LCFunc_s.LCAux(N)
 
-        # LdG elastic
-        if not nonlin_only:
+        if part != 1:
+            # LdG elastic
             g.q1[:] = self.we * 2 * x.q1 * self.aux.c_lap
             g.q2[:] = self.we * 2 * x.q2 * self.aux.c_lap
             g.q3[:] = self.we * 6 * x.q3 * self.aux.c_lap
             g.q4[:] = self.we * 2 * x.q4 * self.aux.c_lap
             g.q5[:] = self.we * 2 * x.q5 * self.aux.c_lap
+            # mixing laplacian
+            g.phi[:] = self.we * self.wp1 * self.aux.c_lap * x.phi
         # LdG bulk
         trQ2 = trace_Q2(q1, q2, q3, q4, q5)
         QpA_C = trQ2 + self.wb2
-        g_v.q1[:] = self.wb * h3 * \
-                    (2 * QpA_C * q1 + self.wb3 * (-4 * q3 * q1 - q5 * q5 + q4 * q4))
-        g_v.q3[:] = self.wb * h3 * \
-                    (6 * QpA_C * q3 + self.wb3 * (6 * q3 * q3 - 2 * q1 * q1
-                                                  + q5 * q5 + q4 * q4 - 2 * q2 * q2))
-        g_v.q2[:] = self.wb * h3 * \
-                    (2 * QpA_C * q2 + self.wb3 * (2 * q4 * q5 - 4 * q3 * q2))
-        g_v.q4[:] = self.wb * h3 * \
-                    (2 * QpA_C * q4 + self.wb3 * (2 * q2 * q5 + 2 * (q1 + q3) * q4))
-        g_v.q5[:] = self.wb * h3 * \
-                    (2 * QpA_C * q5 + self.wb3 * (2 * q2 * q4 - 2 * (q1 - q3) * q5))
-        # mixing laplacian
-        if not nonlin_only:
-            g.phi[:] = self.we * self.wp1 * self.aux.c_lap * x.phi
-        # mixing double-well (MODIFIED)
-        # use the derivative g'(x) = x(x-1)(x-.5-6α)
-        g_v.phi[:] = self.wb * self.wp0 * h3 * \
-                     phi * (phi - 1) * (phi - (.5 + 6 * self.alpha))
+        if part != 0:
+            g_v.q1[:] = self.wb * h3 * \
+                        (2 * QpA_C * q1 + self.wb3 * (-4 * q3 * q1 - q5 * q5 + q4 * q4))
+            g_v.q3[:] = self.wb * h3 * \
+                        (6 * QpA_C * q3 + self.wb3 * (6 * q3 * q3 - 2 * q1 * q1
+                                                      + q5 * q5 + q4 * q4 - 2 * q2 * q2))
+            g_v.q2[:] = self.wb * h3 * \
+                        (2 * QpA_C * q2 + self.wb3 * (2 * q4 * q5 - 4 * q3 * q2))
+            g_v.q4[:] = self.wb * h3 * \
+                        (2 * QpA_C * q4 + self.wb3 * (2 * q2 * q5 + 2 * (q1 + q3) * q4))
+            g_v.q5[:] = self.wb * h3 * \
+                        (2 * QpA_C * q5 + self.wb3 * (2 * q2 * q4 - 2 * (q1 - q3) * q5))
+            # mixing double-well (MODIFIED)
+            # use the derivative g'(x) = x(x-1)(x-.5-6α)
+            g_v.phi[:] = self.wb * self.wp0 * h3 * \
+                         phi * (phi - 1) * (phi - (.5 + 6 * self.alpha))
         # anchoring
         phix = self.padded_dct_and_dst(self.aux.k1 * np.pi * x.phi, axis=0)
         phiy = self.padded_dct_and_dst(self.aux.k2 * np.pi * x.phi, axis=1)
         phiz = self.padded_dct_and_dst(self.aux.k3 * np.pi * x.phi, axis=2)
         x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, phix, phiy, phiz)
-        g_v.q1[:] += h3 * self.we * self.wa * \
-                     (2 * (x1 * phix - x2 * phiy)
-                      + self.sp * 2 / 3 * (phix**2 - phiy**2))
-        g_v.q3[:] += h3 * self.we * self.wa * \
-                     (2 * (-x1 * phix - x2 * phiy + 2 * x3 * phiz)
-                      + self.sp * 2 / 3 * (-phix**2 - phiy**2 + 2 * phiz**2))
-        g_v.q2[:] += h3 * self.we * self.wa * \
-                     (2 * (x1 * phiy + x2 * phix) + self.sp * 4 / 3 * phix * phiy)
-        g_v.q4[:] += h3 * self.we * self.wa * \
-                     (2 * (x1 * phiz + x3 * phix) + self.sp * 4 / 3 * phix * phiz)
-        g_v.q5[:] += h3 * self.we * self.wa * \
-                     (2 * (x2 * phiz + x3 * phiy) + self.sp * 4 / 3 * phiy * phiz)
-        d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = Qtimes(q1, q2, q3, q4, q5,
-                                                       2 * x1 + self.sp * 4 / 3 * phix,
-                                                       2 * x2 + self.sp * 4 / 3 * phiy,
-                                                       2 * x3 + self.sp * 4 / 3 * phiz)
-        g.phi[:] += self.we * self.wa * h3 * np.pi * \
-                    (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
-                     + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
-                     + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
-        if not nonlin_only:
+        if part != 0:
+            g_v.q1[:] += h3 * self.we * self.wa * \
+                         (2 * (x1 * phix - x2 * phiy)
+                          + self.sp * 2 / 3 * (phix**2 - phiy**2))
+            g_v.q3[:] += h3 * self.we * self.wa * \
+                         (2 * (-x1 * phix - x2 * phiy + 2 * x3 * phiz)
+                          + self.sp * 2 / 3 * (-phix**2 - phiy**2 + 2 * phiz**2))
+            g_v.q2[:] += h3 * self.we * self.wa * \
+                         (2 * (x1 * phiy + x2 * phix) + self.sp * 4 / 3 * phix * phiy)
+            g_v.q4[:] += h3 * self.we * self.wa * \
+                         (2 * (x1 * phiz + x3 * phix) + self.sp * 4 / 3 * phix * phiz)
+            g_v.q5[:] += h3 * self.we * self.wa * \
+                         (2 * (x2 * phiz + x3 * phiy) + self.sp * 4 / 3 * phiy * phiz)
+        if part != 1:
+            # Diffusion of phi in anchoring energy
+            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = Qtimes(q1, q2, q3, q4, q5,
+                                                           2 * x1 + self.sp * 4 / 3 * phix,
+                                                           2 * x2 + self.sp * 4 / 3 * phiy,
+                                                           2 * x3 + self.sp * 4 / 3 * phiz)
+            g.phi[:] += self.we * self.wa * h3 * np.pi * \
+                        (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
+                         + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
+                         + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
             g.phi[:] += self.we * self.wa * self.sp**2 * 2 / 9 * self.aux.c_lap * x.phi
         # void
-        g_v.q1[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q1
-        g_v.q2[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q2
-        g_v.q3[:] += self.wb * self.wv * h3 * 6 * (1 - phi)**2 * q3
-        g_v.q4[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q4
-        g_v.q5[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q5
-        g_v.phi[:] += self.wb * self.wv * h3 * (phi - 1) * trQ2
+        if part != 0:
+            g_v.q1[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q1
+            g_v.q2[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q2
+            g_v.q3[:] += self.wb * self.wv * h3 * 6 * (1 - phi)**2 * q3
+            g_v.q4[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q4
+            g_v.q5[:] += self.wb * self.wv * h3 * 2 * (1 - phi)**2 * q5
+            g_v.phi[:] += self.wb * self.wv * h3 * (phi - 1) * trQ2
 
         # chain rule: apply (adjoint) DST to value derivatives
         g1 = g_v.sine_trans()
@@ -363,6 +371,29 @@ class LCFunc_s:
 
     def gradQ_vec(self, x: np.ndarray, N):
         return self.gradQ(view_as_lc(x, N)).x
+
+    def anchor_diffusion(self, X: LCState_s, phi):
+        """The diffusion operator over phi induced by the anchoring energy"""
+        h3 = 1 / (X.N + 1)**3
+        x_v = X.sine_trans()
+        q1, q2, q3, q4, q5 = x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5
+        if self.aux is None:
+            self.aux = LCFunc_s.LCAux(X.N)
+
+        phi = phi.reshape([X.N, X.N, X.N])
+        phix = self.padded_dct_and_dst(self.aux.k1 * np.pi * phi, axis=0)
+        phiy = self.padded_dct_and_dst(self.aux.k2 * np.pi * phi, axis=1)
+        phiz = self.padded_dct_and_dst(self.aux.k3 * np.pi * phi, axis=2)
+        x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, phix, phiy, phiz)
+        d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = Qtimes(q1, q2, q3, q4, q5,
+                                                       2 * x1 + self.sp * 4 / 3 * phix,
+                                                       2 * x2 + self.sp * 4 / 3 * phiy,
+                                                       2 * x3 + self.sp * 4 / 3 * phiz)
+        return self.we * self.wa * (h3 * np.pi * \
+                                    (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
+                                     + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
+                                     + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
+                                    + self.sp**2 * 2 / 9 * self.aux.c_lap * phi).ravel()
 
     def hess(self, x: LCState_s):
         """Compute Hessian as implicit matrix (LinearOperator instance)
@@ -492,55 +523,6 @@ class LCFunc_s:
             self.aux = LCFunc_s.LCAux(N)
         return LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
                               matvec=_matvec)
-
-    def grad_descent(self,
-                     X0: LCState_s,
-                     maxiter=10000,
-                     eta=1e-8,
-                     tol=1e-8,
-                     bb=False,
-                     verbose=0,
-                     inspect=False):
-        X = LCState_s(X0.N)
-        X.x[:] = X0.x
-        if inspect:
-            fvec = np.zeros(maxiter)
-        flag = 0
-        Gp = np.zeros_like(X.x)
-        s = np.zeros_like(X.x)
-        for k in range(maxiter):
-            G = self.grad(X)
-            G.proj_phi(0)
-            if verbose >= 2:
-                print("Gradient norm @ Iter %d: %.3e" % (k, norm(G)))
-            if (gnorm := norm(G.x)) < tol:
-                if verbose:
-                    print("Iter over @ No.", k, ", |g| =", gnorm)
-                flag = 1
-                break
-            a = eta
-            if bb and k > 0:
-                y = G.x - Gp
-                a = np.abs(np.dot(s, y) / np.dot(y, y))
-                # if a < -1e-2:
-                #     a = eta  # Keep step length positive
-            # print(k,"::", a, gnorm)
-            # Descent
-            X.x[:] -= a * G.x
-            if np.any(np.isnan(X.x)) and verbose:
-                print("NAN at step", k)
-                flag = -1
-                break
-            if bb:
-                s[:] = -a * G.x
-                Gp[:] = G.x
-            if inspect:
-                fvec[k] = self.energy(X)
-        if flag == 0 and verbose:
-            print("Iteration failed to converge, |g| =", gnorm)
-        if inspect:
-            return X, flag, fvec[0:k]
-        return X, flag
 
 
 def test_grad(FF: LCFunc_s, X: LCState_s, n=5):

@@ -40,7 +40,7 @@ class LCState_s:
 
     def __init__(self, N: int, x=None, copy=False):
         self.N = N  # freq. of sines = #collocation
-        foo = N ** 3
+        foo = N**3
         if x is None:
             self.x = np.zeros(6 * foo)
         else:
@@ -54,6 +54,7 @@ class LCState_s:
         self.q3 = self.x[foo * 2:foo * 3].reshape([N, N, N])
         self.q4 = self.x[foo * 3:foo * 4].reshape([N, N, N])
         self.q5 = self.x[foo * 4:foo * 5].reshape([N, N, N])
+        self.q = self.x[0:foo * 5].reshape([5, N, N, N])  # reference to all of Q
         self.phi = self.x[foo * 5:].reshape([N, N, N])
 
     def values(self, sz=None):
@@ -120,8 +121,8 @@ class LCState_s:
         foo = 2. / np.pi / np.arange(1, self.N + 1)
         foo[1::2] = 0
         int_of_sines = foo.reshape([self.N, 1, 1]) * foo.reshape([1, self.N, 1]) * foo.reshape([1, 1, self.N])
-        s = np.sum(foo ** 2)
-        self.phi -= (np.sum(int_of_sines * self.phi) - v0) * int_of_sines / s ** 3
+        s = np.sum(foo**2)
+        self.phi -= (np.sum(int_of_sines * self.phi) - v0) * int_of_sines / s**3
 
 
 def view_as_lc(x0: np.ndarray, N):
@@ -134,7 +135,19 @@ def save_lc(filename, X: LCState_s):
     np.save(filename, X.x.reshape([6, X.N, X.N, X.N]))
 
 
-def load_lc(filename):
-    """Load state from .npy file and convert to LCState_s class"""
+def load_lc(filename, resize=0):
+    """Load state from .npy file and convert to LCState_s class
+    If needed, resize to a different frequency by padding 0's or truncating."""
     x = np.load(filename)
-    return view_as_lc(x.ravel(), x.shape[1])
+    if resize:
+        N = x.shape[1]  # original N
+        if N < resize:
+            # N is smaller: pad 0's in high-freq components
+            w = resize - N
+            x1 = np.pad(x, [(0, 0), (0, w), (0, w), (0, w)])
+        else:
+            # N is larger: truncate
+            x1 = x[:, 0:resize, 0:resize, 0:resize]
+    else:
+        x1 = x
+    return view_as_lc(x1.ravel(), x1.shape[1])

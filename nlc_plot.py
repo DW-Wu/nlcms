@@ -1,5 +1,4 @@
 import sys, os
-import scipy
 from os.path import join
 from argparse import ArgumentParser
 
@@ -98,31 +97,34 @@ def plot_biax(X: LCState_s, figure=None, N_view=None, phi_thres=0.5):
     biax = biaxiality(X_v.q1, X_v.q2, X_v.q3, X_v.q4, X_v.q5)
     mask = (X_v.phi > phi_thres)
     if not np.any(mask):
-        raise Warning("No φ")
+        raise Warning("No φ above threshold")
     xx = xx[mask]
     yy = yy[mask]
     zz = zz[mask]
-    biax = biax[mask]
-    X = np.transpose(np.vstack([xx, yy, zz]))  # prepare coordinates in column vectors
     # Construct TVTK point data set
+    X = np.transpose(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]))  # prepare coordinates
     pts = tvtk.Points()
     pts.from_array(X)
     cel = tvtk.CellArray()
     cel.from_array([[i] for i in range(len(X))])
     poly = tvtk.PolyData(points=pts, polys=cel)
-    poly.point_data.scalars = biax
+    P = tvtk.DoubleArray(name='phi')
+    P.from_array(X_v.phi[mask].ravel())
+    poly.point_data.add_array(P)  # include φ in case of further thresholding
+    B = tvtk.DoubleArray(name='biax')  # label the data
+    B.from_array(biax[mask].ravel())
+    poly.point_data.add_array(B)
     return poly
 
 
 def plot_director(X: LCState_s, figure=None,
-                  scale_factor=1., phi_thres=0.5, density=0.05, resolution=8):
+                  scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
     """Visualization of solution by Hu (2016).
     Contours of biaxiality order parameter
     Q tensor represented by ellipsoids"""
     if figure is None:
         figure = mlab.gcf()
-    w = 1. / X.N / density**(1 / 3)
-    xx, yy, zz = points_fcc(width=w)  # FCC point cloud
+    xx, yy, zz = points_fcc(width=width)  # FCC point cloud
     phi = X.values_x(xx, yy, zz, phi_only=True)
     # restrict to phi>threshold
     mask = (phi > phi_thres)
@@ -152,7 +154,7 @@ def plot_director(X: LCState_s, figure=None,
         lam = (lam - np.min(lam)) / (np.max(lam) - np.min(lam) + 1e-10) + .1
         for k in range(3):
             S[:, k] *= lam[k]
-        S *= scale_factor * w * 0.5
+        S *= scale_factor * width * 0.5
         surf = mlab.mesh((S[0, 0] * sphere_x + S[0, 1] * sphere_y + S[0, 2] * sphere_z) + xx[i],
                          (S[1, 0] * sphere_x + S[1, 1] * sphere_y + S[1, 2] * sphere_z) + yy[i],
                          (S[2, 0] * sphere_x + S[2, 1] * sphere_y + S[2, 2] * sphere_z) + zz[i],
@@ -187,21 +189,18 @@ if __name__ == "__main__":
 
     # Plot
     s = int(args.num_view)
-    X_v = X.sine_trans(sz=s)
     fig = mlab.figure(1)
-    xxx = np.arange(1, s + 1) / (s + 1)
-    xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
     if not args.no_phi:
         plot_phi(X, figure=fig)
         mlab.savefig(join(OUTD, "phi.wrl"), figure=fig)
 
     mlab.clf(fig)
     if not args.no_dir:
-        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, density=0.05)
+        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, width=0.1)
         write_data(dir_vtk, join(OUTD, "dir.vtp"))
         # mlab.savefig(join(OUTD, "dir.obj"), figure=fig)
 
     mlab.clf(fig)
     if not args.no_biax:
-        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=.8)
+        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=.5)
         write_data(biax_vtk, join(OUTD, "biax.vtp"))
