@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
 import sys
 import os
-from os.path import join
+from os.path import join, exists
 import subprocess
 
 import numpy as np
@@ -100,8 +100,11 @@ def solve_gd(FF: LCFunc_s, X0: LCState_s, Q_only=False,
 
 
 def solve_gf(FF: LCFunc_s, X0: LCState_s,
-             maxiter=10000, dt=1e-3, tol=1e-8,
-             bb=False, verbose=0, inspect=False):
+             maxiter=10000,
+             dt=1e-3,
+             tol=1e-8,
+             verbose=0,
+             inspect=False):
     """Solve with implicit gradient flow"""
     X = LCState_s(X0.N)
     X.x[:] = X0.x
@@ -123,10 +126,17 @@ def solve_gf(FF: LCFunc_s, X0: LCState_s,
         X.q5[:] = (X.q5 - dt * G_nonlin.q5) / (1. + dt * FF.we * 2 * FF.aux.c_lap)
         # An implicit step in phi involves solving the anchoring diffusion operator
         # We use GMRES
+        Xp_v = Xp.sine_trans()
         anch_diff = LinearOperator(dtype=float,
                                    shape=(X.N**3, X.N**3),
                                    matvec=lambda v: (v + dt * FF.we * FF.wp1 * FF.aux.c_lap.ravel() * v
-                                                     + dt * FF.anchor_diffusion(Xp, v)))
+                                                     + dt * FF.anchor_diffusion(Xp, v,
+                                                                                recompute_Q=False,
+                                                                                q1=Xp_v.q1,
+                                                                                q2=Xp_v.q2,
+                                                                                q3=Xp_v.q3,
+                                                                                q4=Xp_v.q4,
+                                                                                q5=Xp_v.q5)))
         Y = (X.phi - dt * G_nonlin.phi).ravel()
         # Solve implicit equation in phi using GMRES (very loose conditions)
         dphi, _ = gmres(anch_diff, Y, Xp.phi.ravel(),
@@ -153,11 +163,11 @@ def solve_gf(FF: LCFunc_s, X0: LCState_s,
 
 if __name__ == "__main__":
     OUTD = join(os.path.dirname(sys.argv[0]), args.output)
-    if not os.path.exists(OUTD):
+    if not exists(OUTD):
         os.mkdir(OUTD)
 
     # a=3
-    N = int(args.num_sines)
+    N = int(args.num_sines)  # default 31
     np.random.seed(20240909)
     FF = LCFunc_s()
     # Default config for radial state
@@ -174,7 +184,7 @@ if __name__ == "__main__":
         if not args.silent:
             print("Loading initial value from file...")
         X = load_lc(args.init, resize=N)
-    elif os.path.exists(join(OUTD, "solution.npy")) and not args.restart:
+    elif exists(join(OUTD, "solution.npy")) and not args.restart:
         # solution obtained last time
         if not args.silent:
             print("Loading existing solution...")
@@ -207,9 +217,10 @@ if __name__ == "__main__":
 
     # solve for state
     # X, flag = solve_gd(FF,X, maxiter=2000, eta=1e-6, tol=1e-6, bb=False, verbose=0)
-    X, flag, fvec = solve_gf(FF, X, maxiter=1000, dt=5e-3, tol=1e-8, bb=False, verbose=1, inspect=True)
+    X, flag, fvec = solve_gf(FF, X, maxiter=100, dt=1e-4, tol=1e-8, verbose=1, inspect=True)
     if args.energy_plot:
         plt.plot(fvec)
+        plt.title("Energy in gradient flow")
         plt.savefig(join(OUTD, "energy.pdf"))
     if flag <= 0:
         X, flag, _ = solve_gd(FF, X,

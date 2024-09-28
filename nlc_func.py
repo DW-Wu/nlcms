@@ -372,15 +372,25 @@ class LCFunc_s:
     def gradQ_vec(self, x: np.ndarray, N):
         return self.gradQ(view_as_lc(x, N)).x
 
-    def anchor_diffusion(self, X: LCState_s, phi):
-        """The diffusion operator over phi induced by the anchoring energy"""
+    def anchor_diffusion(self, X: LCState_s, phi, recompute_Q=True, reshape=True, **kwargs):
+        """The diffusion operator over phi induced by the anchoring energy
+        `recompute`: whether to compute values of Q again.
+                     if not, provide them in kwargs
+        `reshape`: whether to reshape output as vector"""
         h3 = 1 / (X.N + 1)**3
-        x_v = X.sine_trans()
-        q1, q2, q3, q4, q5 = x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5
         if self.aux is None:
             self.aux = LCFunc_s.LCAux(X.N)
 
         phi = phi.reshape([X.N, X.N, X.N])
+        if not recompute_Q:
+            q1 = kwargs.get('q1')
+            q2 = kwargs.get('q2')
+            q3 = kwargs.get('q3')
+            q4 = kwargs.get('q4')
+            q5 = kwargs.get('q5')
+        else:
+            x_v = X.sine_trans()
+            q1, q2, q3, q4, q5 = x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5
         phix = self.padded_dct_and_dst(self.aux.k1 * np.pi * phi, axis=0)
         phiy = self.padded_dct_and_dst(self.aux.k2 * np.pi * phi, axis=1)
         phiz = self.padded_dct_and_dst(self.aux.k3 * np.pi * phi, axis=2)
@@ -389,11 +399,15 @@ class LCFunc_s:
                                                        2 * x1 + self.sp * 4 / 3 * phix,
                                                        2 * x2 + self.sp * 4 / 3 * phiy,
                                                        2 * x3 + self.sp * 4 / 3 * phiz)
-        return self.we * self.wa * (h3 * np.pi * \
-                                    (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
-                                     + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
-                                     + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
-                                    + self.sp**2 * 2 / 9 * self.aux.c_lap * phi).ravel()
+        D = self.we * self.wa * (h3 * np.pi * \
+                                 (self.aux.k1 * self.padded_dct_and_dst(d_a0_d_phix, axis=0)
+                                  + self.aux.k2 * self.padded_dct_and_dst(d_a0_d_phiy, axis=1)
+                                  + self.aux.k3 * self.padded_dct_and_dst(d_a0_d_phiz, axis=2))
+                                 + self.sp**2 * 2 / 9 * self.aux.c_lap * phi)
+        if reshape:
+            return D.ravel()
+        else:
+            return D
 
     def hess(self, x: LCState_s):
         """Compute Hessian as implicit matrix (LinearOperator instance)

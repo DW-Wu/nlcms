@@ -1,4 +1,5 @@
-import sys, os
+import os
+from glob import glob
 from os.path import join
 from argparse import ArgumentParser
 
@@ -7,7 +8,7 @@ from argparse import ArgumentParser
 if __name__ == "__main__":
     parser = ArgumentParser(prog="nlc_plot",
                             description="Plot 3D NLC state using Mayavi engine")
-    parser.add_argument("file", action="store", help="Input file")
+    parser.add_argument("files", nargs='*', action="store", help="Input file(s)")
     parser.add_argument("-N", "--num_view", action="store", default=127,
                         help="Grid size of final view")
     parser.add_argument("-o", "--output", action="store", default="out",
@@ -173,6 +174,24 @@ def plot_director(X: LCState_s, figure=None,
     return append_pd.output
 
 
+def plot_main(fname, s, fig, out_dir, out_suffix='', phi=True, dir=True, biax=True):
+    if out_suffix:
+        out_suffix = '_' + out_suffix
+    X = load_lc(fname)
+    # Plot
+    if phi:
+        plot_phi(X, figure=fig)
+        mlab.savefig(join(out_dir, "phi%s.wrl" % out_suffix), figure=fig)
+    mlab.clf(fig)
+    if dir:
+        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, width=0.1)
+        write_data(dir_vtk, join(out_dir, "dir%s.vtp" % out_suffix))
+    mlab.clf(fig)
+    if biax:
+        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=.5)
+        write_data(biax_vtk, join(out_dir, "biax%s.vtp" % out_suffix))
+
+
 if __name__ == "__main__":
     # # test FCC point cloud
     # X, Y, Z = points_fcc(width=0.1)
@@ -180,27 +199,18 @@ if __name__ == "__main__":
     # mlab.show()
     args = parser.parse_args()
 
-    OUTD = join(os.path.dirname(sys.argv[0]), args.output)
+    OUTD = join(os.path.abspath('.'), args.output)
     if not os.path.exists(OUTD):
         os.mkdir(OUTD)
 
-    # Prepare state
-    X = load_lc(args.file)
-
-    # Plot
-    s = int(args.num_view)
+    # Gather input files
     fig = mlab.figure(1)
-    if not args.no_phi:
-        plot_phi(X, figure=fig)
-        mlab.savefig(join(OUTD, "phi.wrl"), figure=fig)
-
-    mlab.clf(fig)
-    if not args.no_dir:
-        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, width=0.1)
-        write_data(dir_vtk, join(OUTD, "dir.vtp"))
-        # mlab.savefig(join(OUTD, "dir.obj"), figure=fig)
-
-    mlab.clf(fig)
-    if not args.no_biax:
-        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=.5)
-        write_data(biax_vtk, join(OUTD, "biax.vtp"))
+    FL = []
+    for a in args.files:
+        FL += glob(a)
+    for fn in FL:
+        if not fn.endswith('.npy'):
+            raise ValueError("Invalid state file name")
+        plot_main(fn, int(args.num_view), fig, OUTD,
+                  out_suffix=os.path.basename(fn).removesuffix('.npy'),
+                  phi=not args.no_phi, dir=not args.no_dir, biax=not args.no_biax)
