@@ -18,6 +18,8 @@ parser.add_argument('-N', '--num-sines', action="store", default=31,
                     help="Number of sine functions along each axis")
 parser.add_argument('--maxiter', action='store', default=2000,
                     help="Maximum iteration number")
+parser.add_argument('--eta', action='store', default=1e-6,
+                    help="Gradient descent step length (learning rate)")
 parser.add_argument('--matlab', action='store_true', default=False,
                     help="Export .mat file of state variables")
 parser.add_argument('--post', action='store', default="plot", choices=["plot", "eigen", "none"],
@@ -103,6 +105,8 @@ def solve_gf(FF: LCFunc_s, X0: LCState_s,
              maxiter=10000,
              dt=1e-3,
              tol=1e-8,
+             maxsubiter=50,
+             subtol=0.1,
              verbose=0,
              inspect=False):
     """Solve with implicit gradient flow"""
@@ -116,32 +120,18 @@ def solve_gf(FF: LCFunc_s, X0: LCState_s,
     for t in range(maxiter):
         G_nonlin = FF.grad(X, part=1)
         Xp.x[:] = X.x
+        D = FF.diffusion(Xp)
         if inspect:
             fvec[t] = FF.energy(X)
-        # Implicit steps
-        X.q1[:] = (X.q1 - dt * G_nonlin.q1) / (1. + dt * FF.we * 2 * FF.aux.c_lap)
-        X.q2[:] = (X.q2 - dt * G_nonlin.q2) / (1. + dt * FF.we * 2 * FF.aux.c_lap)
-        X.q3[:] = (X.q3 - dt * G_nonlin.q3) / (1. + dt * FF.we * 6 * FF.aux.c_lap)
-        X.q4[:] = (X.q4 - dt * G_nonlin.q4) / (1. + dt * FF.we * 2 * FF.aux.c_lap)
-        X.q5[:] = (X.q5 - dt * G_nonlin.q5) / (1. + dt * FF.we * 2 * FF.aux.c_lap)
-        # An implicit step in phi involves solving the anchoring diffusion operator
+        # An implicit step involves solving the anchoring diffusion operator
         # We use GMRES
-        Xp_v = Xp.sine_trans()
-        anch_diff = LinearOperator(dtype=float,
-                                   shape=(X.N**3, X.N**3),
-                                   matvec=lambda v: (v + dt * FF.we * FF.wp1 * FF.aux.c_lap.ravel() * v
-                                                     + dt * FF.anchor_diffusion(Xp, v,
-                                                                                recompute_Q=False,
-                                                                                q1=Xp_v.q1,
-                                                                                q2=Xp_v.q2,
-                                                                                q3=Xp_v.q3,
-                                                                                q4=Xp_v.q4,
-                                                                                q5=Xp_v.q5)))
-        Y = (X.phi - dt * G_nonlin.phi).ravel()
+        Y = (X.x - dt * G_nonlin.x).ravel()
+        IpD=LinearOperator(dtype=float,shape=(6*N**3,6*N**3),
+                           matvec=lambda v: v+dt*(D@v))
         # Solve implicit equation in phi using GMRES (very loose conditions)
-        dphi, _ = gmres(anch_diff, Y, Xp.phi.ravel(),
-                        rtol=0.1 * dt, restart=10, maxiter=50)
-        X.phi[:] = dphi.reshape([X.N, X.N, X.N])
+        x_new, _ = gmres(IpD, Y, Xp.x,
+                        rtol=subtol * dt, restart=20, maxiter=maxsubiter)
+        X.x[:] = x_new
         FF.project(X, FF.v0)
         if np.any(np.isnan(X.x)):
             if verbose:
@@ -171,8 +161,8 @@ if __name__ == "__main__":
     np.random.seed(20240909)
     FF = LCFunc_s()
     # Default config for radial state
-    c0 = LCConfig(A=-1500, lam=1e-6, vol=0.2,
-                  alpha=1. / 64, wv=10, wp=1, wa=5)
+    c0 = LCConfig(A=-1500, lam=2e-7, v0=0.1,
+                eps=0.01, omega=20, wp=1, wv=0.5)
     if args.config is not None:
         c0.update(load_lc_config(args.config))
     FF.reset_conf(c0, show=not args.silent)
@@ -201,11 +191,7 @@ if __name__ == "__main__":
         phiv = (np.tanh(((3 * FF.v0 / 4 / np.pi)**(1 / 3) - r) / 0.04) + 1)
         X.phi[:] = 4. * fft.idstn(phiv, type=1)
         # X.phi[0, 0, 0] = c0['vol']/FF.aux.ios3[0,0,0]
-    FF.project(X, c0['vol'])
-
-    # Pre-process by minimizing on Q first
-    X, _ = solve_gd(FF, X, Q_only=True,
-                    maxiter=1000, eta=1e-5, tol=1e-8, bb=True, verbose=0)
+    FF.project(X, FF.v0)
 
     # Solve with scipy's routines
     # x = fmin_cg(FF.energy_vec, X.x, fprime=FF.grad_vec,
@@ -213,23 +199,28 @@ if __name__ == "__main__":
     #             gtol=1e-6,
     #             maxiter=10000)
     # X = LCState_s(N, x)
-    # FF.project(X, c0['vol'])
+    # FF.project(X, FF.v0)
 
     # solve for state
-    # X, flag = solve_gd(FF,X, maxiter=2000, eta=1e-6, tol=1e-6, bb=False, verbose=0)
-    X, flag, fvec = solve_gf(FF, X, maxiter=100, dt=1e-4, tol=1e-8, verbose=1, inspect=True)
-    if args.energy_plot:
-        plt.plot(fvec)
-        plt.title("Energy in gradient flow")
-        plt.savefig(join(OUTD, "energy.pdf"))
-    if flag <= 0:
-        X, flag, _ = solve_gd(FF, X,
-                              maxiter=int(args.maxiter),
-                              eta=1e-6,
-                              tol=1e-6,
-                              bb=True,
-                              verbose=not args.silent,
-                              inspect=True)
+    g = FF.grad(X)
+    g.proj_phi(0)
+    if norm(g.x) > .1:
+        # Pre-process by minimizing on Q first
+        X, _ = solve_gd(FF, X, Q_only=True,
+                        maxiter=1000, eta=1e-5, tol=1e-8, bb=True, verbose=0)
+        # Use GF to smoothen
+        X, _, fvec = solve_gf(FF, X, maxiter=100, dt=1e-4, tol=1e-8, verbose=1, inspect=True)
+        if args.energy_plot:
+            plt.plot(fvec)
+            plt.title("Energy in gradient flow")
+            plt.savefig(join(OUTD, "energy.pdf"))
+    X, _ = solve_gd(FF, X,
+                    maxiter=int(args.maxiter),  # default 2000
+                    eta=float(args.eta),  # default 1e-6
+                    tol=1e-6,
+                    bb=True,
+                    verbose=not args.silent,  # default True
+                    inspect=False)
     if not args.silent:
         print("Energy = %.6f" % FF.energy(X))
     save_lc(join(OUTD, "solution.npy"), X)
