@@ -4,23 +4,24 @@ import scipy.fft as fft
 """Definition of 3D NLC state LdG tensor by Fourier spectral method"""
 
 
-def padded_dct_then_dst(x,axis):
-    N1,N2,N3=x.shape
-    if axis==0:
+def padded_dct_then_dst(x, axis):
+    N1, N2, N3 = x.shape
+    if axis == 0:
         return .125 * fft.dstn(fft.dctn(
-                np.concatenate([np.zeros([1, N2, N3]),x], axis=0),
-                    type=1, s=N1 + 2, axes=0)[1:N1 + 1, :, :],
-                type=1, axes=(1, 2))
-    elif axis==1:
+            np.concatenate([np.zeros([1, N2, N3]), x], axis=0),
+            type=1, s=N1 + 2, axes=0)[1:N1 + 1, :, :],
+                               type=1, axes=(1, 2))
+    elif axis == 1:
         return .125 * fft.dstn(fft.dctn(
-                np.concatenate([np.zeros([N1,1,N3]),x], axis=1),
-                    type=1, s=N2 + 2, axes=1)[:, 1:N2 + 1, :],
-                type=1, axes=(0, 2))
-    elif axis==2:
+            np.concatenate([np.zeros([N1, 1, N3]), x], axis=1),
+            type=1, s=N2 + 2, axes=1)[:, 1:N2 + 1, :],
+                               type=1, axes=(0, 2))
+    elif axis == 2:
         return .125 * fft.dstn(fft.dctn(
-                np.concatenate([np.zeros([N1,N2,1]),x], axis=2),
-                    type=1, s=N3 + 2, axes=2)[:, :, 1:N3 + 1],
-                type=1, axes=(0, 1))
+            np.concatenate([np.zeros([N1, N2, 1]), x], axis=2),
+            type=1, s=N3 + 2, axes=2)[:, :, 1:N3 + 1],
+                               type=1, axes=(0, 1))
+
 
 class LCState_s:
     """State variable of LdG liquid crystal Q and phase field φ.
@@ -37,7 +38,7 @@ class LCState_s:
                 self.x = x[:]  # DO NOT copy values
             else:
                 self.x = np.copy(x)
-        self.x4=self.x.reshape([6,N,N,N])  # 4-dimensional array structure
+        self.x4 = self.x.reshape([6, N, N, N])  # 4-dimensional array structure
         self.q1 = self.x[0:foo].reshape([N, N, N])
         self.q2 = self.x[foo:foo * 2].reshape([N, N, N])
         self.q3 = self.x[foo * 2:foo * 3].reshape([N, N, N])
@@ -68,45 +69,45 @@ class LCState_s:
             sz = self.N
         x1 = LCState_s(sz)
         for i in range(6):
-            x1.x4[i,:] = .125 * fft.dstn(self.x4[i,:], type=1, s=(sz, sz, sz))
+            x1.x4[i, :] = .125 * fft.dstn(self.x4[i, :], type=1, s=(sz, sz, sz))
         return x1
 
     def phi_values(self, sz=None):
         if sz is None:
             sz = self.N
         return .125 * fft.dstn(self.phi, type=1, s=(sz, sz, sz))
-    
+
     def xdiff(self, aux_k1=None):
         """Compute value of x-derivatives at corresponding grid points
         through sine and cosine transforms"""
-        N=self.N
+        N = self.N
         # Index of x frequency
         # Reshape into (N,1,1) to broadcast
-        k1=aux_k1 if aux_k1 is not None else \
-            np.arange(1,N+1).reshape([N,1,1])
-        xv=LCState_s(self.N)
+        k1 = aux_k1 if aux_k1 is not None else \
+            np.arange(1, N + 1).reshape([N, 1, 1])
+        xv = LCState_s(self.N)
         for i in range(6):
-            xv.x4[i,:]=padded_dct_then_dst(np.pi*k1*self.x4[i,:], axis=0)
+            xv.x4[i, :] = padded_dct_then_dst(np.pi * k1 * self.x4[i, :], axis=0)
         return xv
-    
+
     def ydiff(self, aux_k2=None):
         """Compute value of y-derivatives"""
-        N=self.N
-        k2=aux_k2 if aux_k2 is not None else \
-            np.arange(1,N+1).reshape([1,N,1])
-        xv=LCState_s(N)
+        N = self.N
+        k2 = aux_k2 if aux_k2 is not None else \
+            np.arange(1, N + 1).reshape([1, N, 1])
+        xv = LCState_s(N)
         for i in range(6):
-            xv.x4[i,:]=padded_dct_then_dst(np.pi*k2*self.x4[i,:], axis=1)
+            xv.x4[i, :] = padded_dct_then_dst(np.pi * k2 * self.x4[i, :], axis=1)
         return xv
-    
-    def zdiff(self,aux_k3=None):
+
+    def zdiff(self, aux_k3=None):
         """Compute value of z-derivatives"""
-        N=self.N
-        k3=aux_k3 if aux_k3 is not None else \
-            np.arange(1,N+1).reshape([1,1,N])
-        xv=LCState_s(N)
+        N = self.N
+        k3 = aux_k3 if aux_k3 is not None else \
+            np.arange(1, N + 1).reshape([1, 1, N])
+        xv = LCState_s(N)
         for i in range(6):
-            xv.x4[i,:]=padded_dct_then_dst(np.pi*k3*self.x4[i,:], axis=2)
+            xv.x4[i, :] = padded_dct_then_dst(np.pi * k3 * self.x4[i, :], axis=2)
         return xv
 
     def values_x(self, x, y, z, phi_only=False):
@@ -171,18 +172,18 @@ def load_lc(filename, resize=0):
     return view_as_lc(x1.ravel(), x1.shape[1])
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     np.random.seed(20241003)
-    N=7
-    X=LCState_s(N)
-    Y=LCState_s(N)
-    k1=np.arange(1,N+1).reshape([N,1,1])
+    N = 7
+    X = LCState_s(N)
+    Y = LCState_s(N)
+    k1 = np.arange(1, N + 1).reshape([N, 1, 1])
     # Adjoint of the differentiation operator
     for i in range(10):
-        X.x[:]=np.random.randn(6*N**3)
-        Y.x[:]=np.random.randn(6*N**3)
-        Xx=X.xdiff()
-        print(np.sum(Xx.q1*Y.q1),
-              np.sum(X.q1*np.pi*k1*padded_dct_then_dst(Y.q1,axis=0)))
+        X.x[:] = np.random.randn(6 * N**3)
+        Y.x[:] = np.random.randn(6 * N**3)
+        Xx = X.xdiff()
+        print(np.sum(Xx.q1 * Y.q1),
+              np.sum(X.q1 * np.pi * k1 * padded_dct_then_dst(Y.q1, axis=0)))
 
-    X1=X.sine_trans(sz=31)
+    X1 = X.sine_trans(sz=31)

@@ -1,4 +1,5 @@
 """Computations of the LC state"""
+from typing import Any
 from nlc_state import *
 import json
 from numpy.linalg import norm
@@ -75,8 +76,15 @@ class LCConfig(dict):
                      'eps': .01, 'omega': 5, 'wp': 1, 'wv': 1}
         p_default.update(kwargs)
         super().__init__(**p_default)
-        for key,value in p_default.items():
+        for key, value in p_default.items():
             setattr(self, key, value)
+
+    def __setattr__(self, __name: str, __value):
+        if __name not in self.keys():
+            raise KeyError("Invalid key %s for LCConfig; key must be in %a" % (__name,
+                                                                               list(self.keys())))
+        super().__setitem__(__name, __value)  # change dict values as well
+        return super().__setattr__(__name, __value)
 
 
 def save_lc_config(fn, x):
@@ -97,26 +105,26 @@ def load_lc_config(fn):
 class LCFunc_s:
     def __init__(self, **kwargs):
         self.reset_params(A=kwargs.get("temp", -3900),
-                        B=kwargs.get("bulk3", 6400),
-                        C=kwargs.get("bulk4", 3500),
-                        L=kwargs.get("elastic", 4e-11),
-                        lam=kwargs.get("char_len", 1e-6),
-                        v0=kwargs.get("volume", 0.09),
-                        eps=kwargs.get("capillary_width", 0.01),
-                        omega=kwargs.get("w_anch", 1),
-                        wp=kwargs.get("w_mix", 5),
-                        wv=kwargs.get("w_void", 1))
+                          B=kwargs.get("bulk3", 6400),
+                          C=kwargs.get("bulk4", 3500),
+                          L=kwargs.get("elastic", 4e-11),
+                          lam=kwargs.get("char_len", 1e-6),
+                          v0=kwargs.get("volume", 0.09),
+                          eps=kwargs.get("capillary_width", 0.01),
+                          omega=kwargs.get("w_anch", 1),
+                          wp=kwargs.get("w_mix", 5),
+                          wv=kwargs.get("w_void", 1))
         # Penalty factors
         self.aux = None
 
-    def reset_params(self,show=False,A=-3900.,B=6400.,C=3500.,L=4e-11,
-                     lam=1e-6,v0=.04,eps=.01,
-                     omega=5,wp=1,wv=1):
+    def reset_params(self, show=False, A=-3900., B=6400., C=3500., L=4e-11,
+                     lam=1e-6, v0=.04, eps=.01,
+                     omega=5, wp=1, wv=1):
         # Compute nondimensional coefficients
         barlam = lam * np.sqrt(C / L)
         sp = (B + np.sqrt(B * B - 24 * A * C)) / 4 / C  # s_plus
         bmin = sp**2 * (9 * A - B * sp) / 54  # minimum of bulk
-        
+
         # Display the functional
         if show:
             print("Full energy functional:\n")
@@ -132,25 +140,25 @@ class LCFunc_s:
             print(" + w₂ ⎪   [ κ⁻¹·(1-φ)²·|Q|²/2 + κ·|∇Q|²/2 ] dx")
             print("      ⎭ Ω")
             print("with\tλ  = %.3e" % barlam)
-            print("\tw₁ = %.3e\n\tw₂ = %.3e\n\tε = %.3e\n\tω = %.3e\n\tκ = √(ε) = %.3e" 
+            print("\tw₁ = %.3e\n\tw₂ = %.3e\n\tε = %.3e\n\tω = %.3e\n\tκ = √(ε) = %.3e"
                   % (wp, wv, eps, omega, np.sqrt(eps)))
 
         # Compute coefficients
-        self.conf=LCConfig(A=A,B=B,C=C,L=L,
-                           lam=lam,v0=v0,eps=eps,
-                           omega=omega,wp=wp,wv=wv)
+        self.conf = LCConfig(A=A, B=B, C=C, L=L,
+                             lam=lam, v0=v0, eps=eps,
+                             omega=omega, wp=wp, wv=wv)
         self.sp = sp
         self.v0 = v0
         self.bmin = bmin / C  # minimum of \bar{F}_b
-        self.we = 1 / barlam  # elastic energy 1/2*|∇Q|^2
+        self.we = 1 / barlam  # elastic energy 1/2*φ^2*|∇Q|^2
         self.wb = barlam  # bulk energy \bar{F}_b
         self.wb2 = A / C  # tr(Q^2)/2 in bulk
         self.wb3 = -B / C  # tr(Q^3)/3 in bulk
-        self.wv = wv/np.sqrt(eps)  # 1/2*(1-φ)^2|Q^2| in void
-        self.wv1 = wv*np.sqrt(eps) # an extra 1/2*|∇Q|^2 term
-        self.wa = wp*eps*omega  # |(...)∇φ|^2 in anchoring
-        self.wp1 = 2*wp*eps  # 1/2*|∇φ|^2 in mixing
-        self.wp0 = wp/eps  # (1-φ)^2*φ^2 in mixing
+        self.wv = wv / np.sqrt(eps)  # 1/2*(1-φ)^2|Q^2| in void
+        self.wv1 = wv * np.sqrt(eps)  # an extra 1/2*|∇Q|^2 term
+        self.wa = wp * eps * omega  # |(...)∇φ|^2 in anchoring
+        self.wp1 = 2 * wp * eps  # 1/2*|∇φ|^2 in mixing
+        self.wp0 = wp / eps  # (1-φ)^2*φ^2 in mixing
 
     def reset_conf(self, conf: LCConfig, show=False):
         self.conf.update(conf)
@@ -193,7 +201,7 @@ class LCFunc_s:
         return np.sum(self.aux.ios3 * x.phi)
 
     def project(self, x: LCState_s, v0):
-        """Project phi to `v0`"""
+        """Project phi to `v0` by modifying state values"""
         if self.aux is None or self.aux.N != x.N:
             self.aux = LCFunc_s.LCAux(x.N)
         ios3 = self.aux.ios3
@@ -214,46 +222,48 @@ class LCFunc_s:
         """Energy with LdG density masked by φ"""
         N = x.N
         h3 = 1. / (N + 1)**3
-        xv = x.sine_trans() # function values
-        xvx = x.xdiff() # derivatives
+        xv = x.sine_trans()  # function values
+        xvx = x.xdiff()  # derivatives
         xvy = x.ydiff()
         xvz = x.zdiff()
         q1, q2, q3, q4, q5, phi = \
-            xv.q1,xv.q2,xv.q3,xv.q4,xv.q5,xv.phi
+            xv.q1, xv.q2, xv.q3, xv.q4, xv.q5, xv.phi
         if self.aux is None:
             self.aux = LCFunc_s.LCAux(N)
         trQ2 = trace_Q2(q1, q2, q3, q4, q5)
         E = 0.
-        if part=='e' or part == 'all':
+        if part == 'e' or part == 'all':
             # elastic energy
             E += self.we * h3 * \
-                np.sum(phi**2*(xvx.q1**2+xvx.q2**2+3*xvx.q3**2+xvx.q4**2+xvx.q5**2
-                               +xvy.q1**2+xvy.q2**2+3*xvy.q3**2+xvy.q4**2+xvy.q5**2
-                               +xvz.q1**2+xvz.q2**2+3*xvz.q3**2+xvz.q4**2+xvz.q5**2))
-        if part=='b' or part == 'all':
+                 np.sum(phi**2 * (xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2
+                                  + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2
+                                  + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2))
+        if part == 'b' or part == 'all':
             # bulk energy
             trQ3 = trace_Q3(q1, q2, q3, q4, q5)
             bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2 - self.bmin
-            E += self.wb * h3 * np.sum(phi**2*bulk)
-        if part=='m' or part == 'all':
+            E += self.wb * h3 * np.sum(phi**2 * bulk)
+        if part == 'm' or part == 'all':
             # mixing energy laplacian
-            E += self.wp1 * .5 * \
-                np.sum(self.aux.c_lap * x.phi**2)
+            E += self.wp1 * .5 * np.sum(self.aux.c_lap * x.phi**2)
             # mixing energy double-well
-            E += self.wp0 * h3 * \
-                np.sum(((1. - phi)*phi)**2)
-        if part=='a' or part == 'all':
+            E += self.wp0 * h3 * np.sum(((1. - phi) * phi)**2)
+        if part == 'a' or part == 'all':
             # anchoring energy
             x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, xvx.phi, xvy.phi, xvz.phi)
             anch_0 = x1**2 + x2**2 + x3**2 + \
-                    2/3 * self.sp * (x1 * xvx.phi + x2 * xvy.phi + x3 * xvz.phi)
+                     2 / 3 * self.sp * (x1 * xvx.phi + x2 * xvy.phi + x3 * xvz.phi)
             E += self.wa * (h3 * np.sum(anch_0) + self.sp**2 / 9 * np.sum(self.aux.c_lap * x.phi**2))
-        if part=='v' or part=='all':
+        if part == 'v' or part == 'all':
             # void energy
             v = (1 - phi)**2 * trQ2
-            E += .5*self.wv * h3 * np.sum(v)
+            E += .5 * self.wv * h3 * np.sum(v)
             # an extra gradient term for coercivity
-            E += self.wv1 * np.sum(self.aux.c_lap*(x.q1**2+x.q2**2+3*x.q3**2+x.q4**2+x.q5**2))
+            E += self.wv1 * np.sum(self.aux.c_lap * (x.q1**2
+                                                     + x.q2**2
+                                                     + 3 * x.q3**2
+                                                     + x.q4**2
+                                                     + x.q5**2))
         return E
 
     def energy_vec(self, x: np.ndarray, N, proj=True):
@@ -262,8 +272,11 @@ class LCFunc_s:
             x = self.project_vec(x, N, self.conf.v0)
         return self.energy(view_as_lc(x, N))
 
-    def grad(self, x: LCState_s, part=2):
+    def grad(self, x: LCState_s, part=2, proj=False):
         """Gradient of functional
+
+        ** arguments **
+
         `part`: if part==0, evaluate only the linear terms (Laplacians)
                 if part==1, evaluate only the nonlinear terms
                 if part==2, evaluate the whole gradient"""
@@ -271,31 +284,31 @@ class LCFunc_s:
         if self.aux is None:
             self.aux = LCFunc_s.LCAux(N)
         h3 = 1. / (N + 1)**3
-        xv = x.sine_trans() # function values
-        xvx = x.xdiff(aux_k1=self.aux.k1) # derivatives
+        xv = x.sine_trans()  # function values
+        xvx = x.xdiff(aux_k1=self.aux.k1)  # derivatives
         xvy = x.ydiff(aux_k2=self.aux.k2)
         xvz = x.zdiff(aux_k3=self.aux.k3)
         q1, q2, q3, q4, q5, phi = \
-            xv.q1,xv.q2,xv.q3,xv.q4,xv.q5,xv.phi
-        trQ2=trace_Q2(q1, q2, q3, q4, q5)
+            xv.q1, xv.q2, xv.q3, xv.q4, xv.q5, xv.phi
+        trQ2 = trace_Q2(q1, q2, q3, q4, q5)
         g = LCState_s(N)  # gradient
         g_v = LCState_s(N)  # gradient w.r.t. values
 
         # LdG elastic (now with mask, so evaluate with adjoints)
         if part != 1:
             for i in range(5):
-                g.x4[i,:] = (2 if i!=2 else 6)*self.we*h3* np.pi*(
-                    self.aux.k1*padded_dct_then_dst(phi**2*xvx.x4[i,:],axis=0)
-                    +self.aux.k2*padded_dct_then_dst(phi**2*xvy.x4[i,:],axis=1)
-                    +self.aux.k3*padded_dct_then_dst(phi**2*xvz.x4[i,:],axis=2)
-                    )
-        if part!=0:
-            g_v.phi[:]=2*self.we*h3*phi*(xvx.q1**2+xvx.q2**2+3*xvx.q3**2+xvx.q4**2+xvx.q5**2
-                                    +xvy.q1**2+xvy.q2**2+3*xvy.q3**2+xvy.q4**2+xvy.q5**2
-                                    +xvz.q1**2+xvz.q2**2+3*xvz.q3**2+xvz.q4**2+xvz.q5**2)
+                g.x4[i, :] = (2 if i != 2 else 6) * self.we * h3 * np.pi * (
+                        self.aux.k1 * padded_dct_then_dst(phi**2 * xvx.x4[i, :], axis=0)
+                        + self.aux.k2 * padded_dct_then_dst(phi**2 * xvy.x4[i, :], axis=1)
+                        + self.aux.k3 * padded_dct_then_dst(phi**2 * xvz.x4[i, :], axis=2)
+                )
+        if part != 0:
+            g_v.phi[:] = 2 * self.we * h3 * phi * (xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2
+                                                   + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2
+                                                   + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2)
         # LdG bulk
         if part != 0:
-            trQ3=trace_Q3(q1,q2,q3,q4,q5)
+            trQ3 = trace_Q3(q1, q2, q3, q4, q5)
             bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2 - self.bmin
             QpA_C = trQ2 + self.wb2
             g_v.q1[:] = self.wb * h3 * phi**2 * \
@@ -309,12 +322,12 @@ class LCFunc_s:
                         (2 * QpA_C * q4 + self.wb3 * (2 * q2 * q5 + 2 * (q1 + q3) * q4))
             g_v.q5[:] = self.wb * h3 * phi**2 * \
                         (2 * QpA_C * q5 + self.wb3 * (2 * q2 * q4 - 2 * (q1 - q3) * q5))
-            g_v.phi[:] += 2*self.wb*h3*(bulk*phi)
+            g_v.phi[:] += 2 * self.wb * h3 * (bulk * phi)
         # mixing energy
-        if part!=0:
-            g_v.phi[:] += 4*self.wp0 * h3 * \
-                         phi * (phi - 1) * (phi - .5)
-        if part!=1:
+        if part != 0:
+            g_v.phi[:] += 4 * self.wp0 * h3 * \
+                          phi * (phi - 1) * (phi - .5)
+        if part != 1:
             g.phi[:] = self.wp1 * self.aux.c_lap * x.phi
         # anchoring
         x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, xvx.phi, xvy.phi, xvz.phi)
@@ -333,10 +346,11 @@ class LCFunc_s:
                          (2 * (x2 * xvz.phi + x3 * xvy.phi) + self.sp * 4 / 3 * xvy.phi * xvz.phi)
         if part != 1:
             # Diffusion of phi in anchoring energy
-            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = Qtimes(q1, q2, q3, q4, q5,
-                                                           2 * x1 + self.sp * 4 / 3 * xvx.phi,
-                                                           2 * x2 + self.sp * 4 / 3 * xvy.phi,
-                                                           2 * x3 + self.sp * 4 / 3 * xvz.phi)
+            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = \
+                Qtimes(q1, q2, q3, q4, q5,
+                       2 * x1 + self.sp * 4 / 3 * xvx.phi,
+                       2 * x2 + self.sp * 4 / 3 * xvy.phi,
+                       2 * x3 + self.sp * 4 / 3 * xvz.phi)
             g.phi[:] += self.wa * h3 * np.pi * \
                         (self.aux.k1 * padded_dct_then_dst(d_a0_d_phix, axis=0)
                          + self.aux.k2 * padded_dct_then_dst(d_a0_d_phiy, axis=1)
@@ -345,15 +359,17 @@ class LCFunc_s:
         # void
         if part != 0:
             for i in range(5):
-                g_v.x4[i,:] += (2 if i!=2 else 6) * self.wv*h3* (1-phi)**2*xv.x4[i,:]
+                g_v.x4[i, :] += (2 if i != 2 else 6) * self.wv * h3 * (1 - phi)**2 * xv.x4[i, :]
             g_v.phi[:] += self.wv * h3 * (phi - 1) * trQ2
-        if part!=1:
+        if part != 1:
             for i in range(5):
-                g.x4[i,:] += (2 if i!=2 else 6)*self.wv1*self.aux.c_lap*x.x4[i,:]
+                g.x4[i, :] += (2 if i != 2 else 6) * self.wv1 * self.aux.c_lap * x.x4[i, :]
 
         # chain rule: apply (adjoint) DST to value derivatives
         g1 = g_v.sine_trans()
         g.x += g1.x
+        if proj:
+            self.project(g, 0)
         return g
 
     def grad_vec(self, x: np.ndarray, N, proj=True):
@@ -374,56 +390,62 @@ class LCFunc_s:
 
     def gradQ_vec(self, x: np.ndarray, N):
         return self.gradQ(view_as_lc(x, N)).x
-    
-    def diffusion(self, X:LCState_s):
+
+    def diffusion(self, X: LCState_s, proj=False):
         """The diffusion operator (in Q and phi) induced by the LdG energy
         which is composed of linear terms in the gradient"""
         N = X.N
         if self.aux is None:
             self.aux = LCFunc_s.LCAux(N)
         h3 = 1. / (N + 1)**3
-        xv = X.sine_trans() # function values
+        xv = X.sine_trans()  # function values
         q1, q2, q3, q4, q5, phi = \
-            xv.q1,xv.q2,xv.q3,xv.q4,xv.q5,xv.phi
+            xv.q1, xv.q2, xv.q3, xv.q4, xv.q5, xv.phi
 
-        def diff_op(dx:np.ndarray):
-            nonlocal self,N,q1,q2,q3,q4,q5,phi
-            dX=view_as_lc(dx,N)
-            dXvx = dX.xdiff(aux_k1=self.aux.k1) # derivatives
+        def diff_op(dx: np.ndarray):
+            nonlocal self, N, q1, q2, q3, q4, q5, phi, proj
+            dX = LCState_s(N, dx, copy=True)
+            if proj:
+                # dX must satisfy constraint
+                FF.project(dX, 0)
+            dXvx = dX.xdiff(aux_k1=self.aux.k1)  # derivatives
             dXvy = dX.ydiff(aux_k2=self.aux.k2)
             dXvz = dX.zdiff(aux_k3=self.aux.k3)
-            g=LCState_s(N)
-        
+            g = LCState_s(N)
+
             # Q-diffusion from LdG elastic and void
             # LdG elastic (now with mask, so evaluate with adjoints)
             for i in range(5):
-                g.x4[i,:] = (2 if i!=2 else 6)*self.we*h3* np.pi*(
-                    self.aux.k1*padded_dct_then_dst(phi**2*dXvx.x4[i,:],axis=0)
-                    +self.aux.k2*padded_dct_then_dst(phi**2*dXvy.x4[i,:],axis=1)
-                    +self.aux.k3*padded_dct_then_dst(phi**2*dXvz.x4[i,:],axis=2)
-                    )
+                g.x4[i, :] = (2 if i != 2 else 6) * self.we * h3 * np.pi * (
+                        self.aux.k1 * padded_dct_then_dst(phi**2 * dXvx.x4[i, :], axis=0)
+                        + self.aux.k2 * padded_dct_then_dst(phi**2 * dXvy.x4[i, :], axis=1)
+                        + self.aux.k3 * padded_dct_then_dst(phi**2 * dXvz.x4[i, :], axis=2)
+                )
             # mixing Laplacian
             g.phi[:] = self.wp1 * self.aux.c_lap * dX.phi
             # Diffusion of phi in anchoring energy
             x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, dXvx.phi, dXvy.phi, dXvz.phi)
-            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = Qtimes(q1, q2, q3, q4, q5,
-                                                            2 * x1 + self.sp * 4 / 3 * dXvx.phi,
-                                                            2 * x2 + self.sp * 4 / 3 * dXvy.phi,
-                                                            2 * x3 + self.sp * 4 / 3 * dXvz.phi)
+            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = \
+                Qtimes(q1, q2, q3, q4, q5,
+                       2 * x1 + self.sp * 4 / 3 * dXvx.phi,
+                       2 * x2 + self.sp * 4 / 3 * dXvy.phi,
+                       2 * x3 + self.sp * 4 / 3 * dXvz.phi)
             g.phi[:] += self.wa * h3 * np.pi * \
                         (self.aux.k1 * padded_dct_then_dst(d_a0_d_phix, axis=0)
-                        + self.aux.k2 * padded_dct_then_dst(d_a0_d_phiy, axis=1)
-                        + self.aux.k3 * padded_dct_then_dst(d_a0_d_phiz, axis=2))
+                         + self.aux.k2 * padded_dct_then_dst(d_a0_d_phiy, axis=1)
+                         + self.aux.k3 * padded_dct_then_dst(d_a0_d_phiz, axis=2))
             g.phi[:] += self.wa * self.sp**2 * 2 / 9 * self.aux.c_lap * dX.phi
             # void
             for i in range(5):
-                g.x4[i,:] += (2 if i!=2 else 6)*self.wv1*self.aux.c_lap*X.x4[i,:]
+                g.x4[i, :] += (2 if i != 2 else 6) * self.wv1 * self.aux.c_lap * X.x4[i, :]
 
+            if proj:
+                # g must also satisfy constraint
+                FF.project(g, 0)
             return g.x
 
-        return LinearOperator(dtype=float,shape=(6*N**3,6*N**3),
+        return LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
                               matvec=diff_op)
-        
 
     # def anchor_diffusion(self, X: LCState_s, phi, recompute_Q=True, reshape=True, **kwargs):
     #     """The diffusion operator over phi induced by the anchoring energy
@@ -595,8 +617,8 @@ class LCFunc_s:
 def test_grad(FF: LCFunc_s, X: LCState_s, n=5):
     for _ in range(n):
         v = np.random.randn(len(X.x))
-        v/=norm(v)
-        for eps in 1e-1,1e-2,1e-3, 1e-4, 1e-5, 1e-6, 1e-7:
+        v /= norm(v)
+        for eps in 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7:
             dfdv = (FF.energy_vec(X.x + eps * v, X.N, proj=False)
                     - FF.energy_vec(X.x - eps * v, X.N, proj=False)) / 2 / eps
             gdotv = np.dot(FF.grad_vec(X.x, X.N, proj=False), v)
@@ -616,14 +638,9 @@ def test_hess(FF: LCFunc_s, X: LCState_s, n=5):
         print()
 
 
-if __name__ == "__main__":
-    N = 7
-    FF = LCFunc_s()
+def generate_x(N):
     X = LCState_s(N)
-    # Random, but with regularization
-    np.random.seed(142)
-    FF.get_aux(N)
-    FF.reset_params(show=True)
+    # Random state X, but with regularization
     reg = np.exp(-(FF.aux.k1**2 + FF.aux.k2**2 + FF.aux.k3**2) / 2)
     X.q1[:] = np.random.randn(N, N, N) * reg
     X.q2[:] = np.random.randn(N, N, N) * reg
@@ -631,5 +648,22 @@ if __name__ == "__main__":
     X.q4[:] = np.random.randn(N, N, N) * reg
     X.q5[:] = np.random.randn(N, N, N) * reg
     X.phi[:] = np.random.randn(N, N, N) * reg
+    return X
+
+
+if __name__ == "__main__":
+    N = 7
+    FF = LCFunc_s()
+    FF.get_aux(N)
+    FF.reset_params(show=True)
+    np.random.seed(142)
+    X = generate_x(N)
+
     test_grad(FF, X)
-    test_hess(FF, X)
+    # test_hess(FF, X)
+    for i in range(5):
+        X = generate_x(N)
+        G = FF.grad(X)
+        G1 = FF.grad(X, part=1)
+        G2 = view_as_lc(FF.diffusion(X) @ X.x, N)
+        print(norm(G.x - G1.x - G2.x))

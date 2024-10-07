@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 import scipy
 from scipy.optimize import fmin_cg
 from scipy.sparse.linalg import lobpcg, gmres
+from tqdm import tqdm
 
 from nlc_func import *
 
@@ -58,15 +59,13 @@ def solve_gd(FF: LCFunc_s, X0: LCState_s, Q_only=False,
     Xp = np.zeros_like(X.x)
     Gp = np.zeros_like(X.x)
     s = np.zeros_like(X.x)
-    for k in range(maxiter):
+    for k in (tqdm(range(maxiter)) if verbose else range(maxiter)):
         G = FF.grad(X)
         FF.project(G, 0)
         if verbose >= 2:
             print("Gradient norm @ itno. %d: %.3e" % (k, norm(G)))
         gnorm = norm(G.q) if Q_only else norm(G.x)
         if gnorm < tol:
-            if verbose:
-                print("Iteration successful @ itno.", k, ", |g| =", gnorm)
             flag = 1
             break
         a = eta
@@ -85,8 +84,6 @@ def solve_gd(FF: LCFunc_s, X0: LCState_s, Q_only=False,
             X.phi[:] -= a * G.phi
             FF.project(X, FF.v0)
         if np.any(np.isnan(X.x)):
-            if verbose:
-                print("NAN at itno.", k)
             flag = -1
             break
         if bb:
@@ -94,8 +91,13 @@ def solve_gd(FF: LCFunc_s, X0: LCState_s, Q_only=False,
             Gp[:] = G.x
         if inspect:
             fvec[k] = FF.energy(X)
-    if flag == 0 and verbose:
-        print("Iteration failed to converge, |g| =", gnorm)
+    if verbose:
+        if flag == 0:
+            print("Iteration failed to converge, |g| =", gnorm)
+        elif flag == 1:
+            print("Iteration successful @ itno.", k, ", |g| =", gnorm)
+        elif flag == -1:
+            print("NAN @ itno.", k)
     if inspect:
         return X, flag, fvec[0:k]
     return X, flag
@@ -110,42 +112,44 @@ def solve_gf(FF: LCFunc_s, X0: LCState_s,
              verbose=0,
              inspect=False):
     """Solve with implicit gradient flow"""
-    X = LCState_s(X0.N)
+    N = X0.N
+    X = LCState_s(N)
     X.x[:] = X0.x
     if inspect:
         fvec = np.zeros(maxiter)
     flag = 0
-    Xp = LCState_s(X.N)
+    Xp = LCState_s(N)
 
-    for t in range(maxiter):
-        G_nonlin = FF.grad(X, part=1)
+    for t in (tqdm(range(maxiter)) if verbose else range(maxiter)):
+        G_nonlin = FF.grad(X, part=1, proj=True)
         Xp.x[:] = X.x
-        D = FF.diffusion(Xp)
+        D = FF.diffusion(Xp, proj=True)
         if inspect:
             fvec[t] = FF.energy(X)
         # An implicit step involves solving the anchoring diffusion operator
         # We use GMRES
         Y = (X.x - dt * G_nonlin.x).ravel()
-        IpD=LinearOperator(dtype=float,shape=(6*N**3,6*N**3),
-                           matvec=lambda v: v+dt*(D@v))
+        IpD = LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
+                             matvec=lambda v: v + dt * (D @ v))
         # Solve implicit equation in phi using GMRES (very loose conditions)
         x_new, _ = gmres(IpD, Y, Xp.x,
-                        rtol=subtol * dt, restart=20, maxiter=maxsubiter)
+                         rtol=subtol * dt, restart=20, maxiter=maxsubiter)
         X.x[:] = x_new
         FF.project(X, FF.v0)
         if np.any(np.isnan(X.x)):
-            if verbose:
-                print("NAN at itno.", t)
             flag = -1
             break
         gnorm = norm(X.x - Xp.x) / dt
         if gnorm < tol:
-            if verbose:
-                print("Iteration successful @ itno.", t, ", |dx/dt| =", gnorm)
             flag = 1
             break
-    if flag == 0 and verbose:
-        print("Iteration failed to converge, |dx/dt| =", gnorm)
+    if verbose:
+        if flag == 0:
+            print("Iteration failed to converge, |dx/dt| =", gnorm)
+        elif flag == 1:
+            print("Iteration successful @ itno.", t, ", |dx/dt| =", gnorm)
+        elif flag == -1:
+            print("NAN @ itno.", t)
     if inspect:
         return X, flag, fvec[0:t]
     return X, flag
@@ -162,7 +166,7 @@ if __name__ == "__main__":
     FF = LCFunc_s()
     # Default config for radial state
     c0 = LCConfig(A=-1500, lam=2e-7, v0=0.1,
-                eps=0.01, omega=20, wp=1, wv=0.5)
+                  eps=0.01, omega=20, wp=1, wv=0.5)
     if args.config is not None:
         c0.update(load_lc_config(args.config))
     FF.reset_conf(c0, show=not args.silent)
@@ -207,7 +211,10 @@ if __name__ == "__main__":
     if norm(g.x) > .1:
         # Pre-process by minimizing on Q first
         X, _ = solve_gd(FF, X, Q_only=True,
-                        maxiter=1000, eta=1e-5, tol=1e-8, bb=True, verbose=0)
+                        maxiter=1000,
+                        eta=1e-5,
+                        tol=1e-8 * np.sqrt(6 * N**3),
+                        bb=True, verbose=0)
         # Use GF to smoothen
         X, _, fvec = solve_gf(FF, X, maxiter=100, dt=1e-4, tol=1e-8, verbose=1, inspect=True)
         if args.energy_plot:
@@ -217,7 +224,7 @@ if __name__ == "__main__":
     X, _ = solve_gd(FF, X,
                     maxiter=int(args.maxiter),  # default 2000
                     eta=float(args.eta),  # default 1e-6
-                    tol=1e-6,
+                    tol=1e-8 * np.sqrt(6 * N**3),  # tolerance ~ sqrt(N)*u
                     bb=True,
                     verbose=not args.silent,  # default True
                     inspect=False)
