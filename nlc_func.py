@@ -201,7 +201,8 @@ class LCFunc_s:
         return np.sum(self.aux.ios3 * x.phi)
 
     def project(self, x: LCState_s, v0):
-        """Project phi to `v0` by modifying state values"""
+        """Project phi to v0
+        Modifies in-place"""
         if self.aux is None or self.aux.N != x.N:
             self.aux = LCFunc_s.LCAux(x.N)
         ios3 = self.aux.ios3
@@ -209,7 +210,8 @@ class LCFunc_s:
         x.phi -= (np.sum(ios3 * x.phi) - v0) * ios3 / r
 
     def project_vec(self, x: np.ndarray, N, v0):
-        """Project phi to v0, but with vector input"""
+        """Project phi to v0, but with vector input.
+        Returns new vector"""
         if self.aux is None or self.aux.N != N:
             self.aux = LCFunc_s.LCAux(N)
         ios3 = self.aux.ios3.ravel()
@@ -405,9 +407,6 @@ class LCFunc_s:
         def diff_op(dx: np.ndarray):
             nonlocal self, N, q1, q2, q3, q4, q5, phi, proj
             dX = LCState_s(N, dx, copy=True)
-            if proj:
-                # dX must satisfy constraint
-                FF.project(dX, 0)
             dXvx = dX.xdiff(aux_k1=self.aux.k1)  # derivatives
             dXvy = dX.ydiff(aux_k2=self.aux.k2)
             dXvz = dX.zdiff(aux_k3=self.aux.k3)
@@ -441,48 +440,11 @@ class LCFunc_s:
 
             if proj:
                 # g must also satisfy constraint
-                FF.project(g, 0)
+                self.project(g, 0)
             return g.x
 
         return LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
                               matvec=diff_op)
-
-    # def anchor_diffusion(self, X: LCState_s, phi, recompute_Q=True, reshape=True, **kwargs):
-    #     """The diffusion operator over phi induced by the anchoring energy
-    #     `recompute`: whether to compute values of Q again.
-    #                  if not, provide them in kwargs
-    #     `reshape`: whether to reshape output as vector"""
-    #     h3 = 1 / (X.N + 1)**3
-    #     if self.aux is None:
-    #         self.aux = LCFunc_s.LCAux(X.N)
-
-    #     phi = phi.reshape([X.N, X.N, X.N])
-    #     if not recompute_Q:
-    #         q1 = kwargs.get('q1')
-    #         q2 = kwargs.get('q2')
-    #         q3 = kwargs.get('q3')
-    #         q4 = kwargs.get('q4')
-    #         q5 = kwargs.get('q5')
-    #     else:
-    #         x_v = X.sine_trans()
-    #         q1, q2, q3, q4, q5 = x_v.q1, x_v.q2, x_v.q3, x_v.q4, x_v.q5
-    #     phix = padded_dct_then_dst(self.aux.k1 * np.pi * phi, axis=0)
-    #     phiy = padded_dct_then_dst(self.aux.k2 * np.pi * phi, axis=1)
-    #     phiz = padded_dct_then_dst(self.aux.k3 * np.pi * phi, axis=2)
-    #     x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, phix, phiy, phiz)
-    #     d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = Qtimes(q1, q2, q3, q4, q5,
-    #                                                    2 * x1 + self.sp * 4 / 3 * phix,
-    #                                                    2 * x2 + self.sp * 4 / 3 * phiy,
-    #                                                    2 * x3 + self.sp * 4 / 3 * phiz)
-    #     D = self.we * self.wa * (h3 * np.pi * \
-    #                              (self.aux.k1 * padded_dct_then_dst(d_a0_d_phix, axis=0)
-    #                               + self.aux.k2 * padded_dct_then_dst(d_a0_d_phiy, axis=1)
-    #                               + self.aux.k3 * padded_dct_then_dst(d_a0_d_phiz, axis=2))
-    #                              + self.sp**2 * 2 / 9 * self.aux.c_lap * phi)
-    #     if reshape:
-    #         return D.ravel()
-    #     else:
-    #         return D
 
     def hess(self, x: LCState_s):
         """Compute Hessian as implicit matrix (LinearOperator instance)

@@ -12,14 +12,14 @@ parser.add_argument('-i', '--init', action="store", default=None,
                     help="Initial value as .npy file (overrides -r option)")
 parser.add_argument('-s', '--silent', action="store_true", default=False,
                     help="Silent run (no printed messages)")
-parser.add_argument('-E', '--energy-plot', action="store_true", default=True,
-                    help="Plot energy values over the iteration")
-parser.add_argument('-N', '--num-sines', action="store", default=31,
+parser.add_argument('-N', '--num-sines', action="store", default=31, type=int,
                     help="Number of sine functions along each axis")
-parser.add_argument('--maxiter', action='store', default=2000,
+parser.add_argument('--maxiter', action='store', default=2000, type=int,
                     help="Maximum iteration number")
-parser.add_argument('--eta', action='store', default=1e-6,
+parser.add_argument('--eta', action='store', default=1e-6, type=float,
                     help="Gradient descent step length (learning rate)")
+parser.add_argument('--tol', action='store', default=1e-8, type=float,
+                    help="Gradient norm tolerance (relative to dimension)")
 parser.add_argument('--matlab', action='store_true', default=False,
                     help="Export .mat file of state variables")
 parser.add_argument('--post', action='store', default="plot", choices=["plot", "eigen", "none"],
@@ -59,12 +59,11 @@ def solve_gd(FF: LCFunc_s, X0: LCState_s, Q_only=False,
     Xp = np.zeros_like(X.x)
     Gp = np.zeros_like(X.x)
     s = np.zeros_like(X.x)
-    for k in (tqdm(range(maxiter)) if verbose else range(maxiter)):
-        G = FF.grad(X)
-        FF.project(G, 0)
-        if verbose >= 2:
-            print("Gradient norm @ itno. %d: %.3e" % (k, norm(G)))
+    for k in (tqdm(range(maxiter), desc="GD") if verbose else range(maxiter)):
+        G = FF.grad(X, proj=True)
         gnorm = norm(G.q) if Q_only else norm(G.x)
+        if verbose >= 2:
+            print("Gradient norm @ itno. %d: %.3e" % (k, gnorm))
         if gnorm < tol:
             flag = 1
             break
@@ -120,7 +119,7 @@ def solve_gf(FF: LCFunc_s, X0: LCState_s,
     flag = 0
     Xp = LCState_s(N)
 
-    for t in (tqdm(range(maxiter)) if verbose else range(maxiter)):
+    for t in (tqdm(range(maxiter), desc="GF") if verbose else range(maxiter)):
         G_nonlin = FF.grad(X, part=1, proj=True)
         Xp.x[:] = X.x
         D = FF.diffusion(Xp, proj=True)
@@ -164,9 +163,9 @@ if __name__ == "__main__":
     N = int(args.num_sines)  # default 31
     np.random.seed(20240909)
     FF = LCFunc_s()
-    # Default config for radial state
+    # Default config for ring state
     c0 = LCConfig(A=-1500, lam=2e-7, v0=0.1,
-                  eps=0.01, omega=20, wp=1, wv=0.5)
+                  eps=0.005, omega=20, wp=1, wv=0.5)
     if args.config is not None:
         c0.update(load_lc_config(args.config))
     FF.reset_conf(c0, show=not args.silent)
@@ -213,18 +212,17 @@ if __name__ == "__main__":
         X, _ = solve_gd(FF, X, Q_only=True,
                         maxiter=1000,
                         eta=1e-5,
-                        tol=1e-8 * np.sqrt(6 * N**3),
+                        tol=float(args.tol) * np.sqrt(6 * N**3),
                         bb=True, verbose=0)
         # Use GF to smoothen
         X, _, fvec = solve_gf(FF, X, maxiter=100, dt=1e-4, tol=1e-8, verbose=1, inspect=True)
-        if args.energy_plot:
-            plt.plot(fvec)
-            plt.title("Energy in gradient flow")
-            plt.savefig(join(OUTD, "energy.pdf"))
+        plt.plot(fvec)
+        plt.title("Energy in gradient flow")
+        plt.savefig(join(OUTD, "energy.pdf"))
     X, _ = solve_gd(FF, X,
                     maxiter=int(args.maxiter),  # default 2000
                     eta=float(args.eta),  # default 1e-6
-                    tol=1e-8 * np.sqrt(6 * N**3),  # tolerance ~ sqrt(N)*u
+                    tol=float(args.tol) * np.sqrt(6 * N**3),  # default 1e-8
                     bb=True,
                     verbose=not args.silent,  # default True
                     inspect=False)
