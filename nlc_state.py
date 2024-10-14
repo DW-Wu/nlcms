@@ -144,6 +144,18 @@ class LCState_s:
         self.phi -= (np.sum(int_of_sines * self.phi) - v0) * int_of_sines / s**3
 
 
+def resize_lc(X: LCState_s, N1):
+    """Resize to a different frequency by padding 0's or truncating."""
+    if X.N < N1:
+        # N is smaller: pad 0's in high-freq components
+        w = N1 - X.N
+        x1 = np.pad(X.x4, [(0, 0), (0, w), (0, w), (0, w)])
+    else:
+        # N is larger: truncate
+        x1 = np.copy(X.x4[:, 0:N1, 0:N1, 0:N1])
+    return LCState_s(N1, x1.ravel())
+
+
 def view_as_lc(x0: np.ndarray, N):
     """Convert (or `view` in numpy terminology) arrays to LCState_s"""
     return LCState_s(N, x0.ravel())
@@ -151,25 +163,17 @@ def view_as_lc(x0: np.ndarray, N):
 
 def save_lc(filename, X: LCState_s):
     """Save LC state (preserve size N for later retrieval)"""
-    np.save(filename, X.x.reshape([6, X.N, X.N, X.N]))
+    np.save(filename, X.x4)
 
 
 def load_lc(filename, resize=0):
-    """Load state from .npy file and convert to LCState_s class
-    If needed, resize to a different frequency by padding 0's or truncating."""
+    """Load state from .npy file and convert to LCState_s class"""
     x = np.load(filename)
+    X0 = view_as_lc(x, x.shape[1])
     if resize:
-        N = x.shape[1]  # original N
-        if N < resize:
-            # N is smaller: pad 0's in high-freq components
-            w = resize - N
-            x1 = np.pad(x, [(0, 0), (0, w), (0, w), (0, w)])
-        else:
-            # N is larger: truncate
-            x1 = x[:, 0:resize, 0:resize, 0:resize]
+        return resize_lc(X0, resize)
     else:
-        x1 = x
-    return view_as_lc(x1.ravel(), x1.shape[1])
+        return X0
 
 
 if __name__ == "__main__":

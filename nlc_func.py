@@ -69,6 +69,7 @@ def Q_eigval(q1, q2, q3, q4, q5, largest=False):
 
 class LCConfig(dict):
     """LdG+PhF model configuration object. Same as python dictionary"""
+    KEYS = ['A', 'B', 'C', 'L', 'lam', 'v0', 'eps', 'omega', 'wp', 'wv']
 
     def __init__(self, **kwargs):
         p_default = {'A': -3900, 'B': 6400, 'C': 3500, 'L': 4e-11,
@@ -80,9 +81,9 @@ class LCConfig(dict):
             setattr(self, key, value)
 
     def __setattr__(self, __name: str, __value):
-        if __name not in self.keys():
+        if __name not in LCConfig.KEYS:
             raise KeyError("Invalid key %s for LCConfig; key must be in %a" % (__name,
-                                                                               list(self.keys())))
+                                                                               LCConfig.KEYS))
         super().__setitem__(__name, __value)  # change dict values as well
         return super().__setattr__(__name, __value)
 
@@ -104,17 +105,10 @@ def load_lc_config(fn):
 
 class LCFunc_s:
     def __init__(self, **kwargs):
-        self.reset_params(A=kwargs.get("temp", -3900),
-                          B=kwargs.get("bulk3", 6400),
-                          C=kwargs.get("bulk4", 3500),
-                          L=kwargs.get("elastic", 4e-11),
-                          lam=kwargs.get("char_len", 1e-6),
-                          v0=kwargs.get("volume", 0.09),
-                          eps=kwargs.get("capillary_width", 0.01),
-                          omega=kwargs.get("w_anch", 1),
-                          wp=kwargs.get("w_mix", 5),
-                          wv=kwargs.get("w_void", 1))
-        # Penalty factors
+        self.conf = LCConfig(A=-1500, lam=2e-7, v0=0.1,
+                             eps=0.005, omega=20, wp=1, wv=0.5)
+        self.conf.update(kwargs)
+        self.reset_params(**self.conf)
         self.aux = None
 
     def reset_params(self, show=False, A=-3900., B=6400., C=3500., L=4e-11,
@@ -129,7 +123,7 @@ class LCFunc_s:
         if show:
             print("Full energy functional:\n")
             print("   ⎧")
-            print("   ⎪   φ²[ λ·(A·|Q|²/2C - B·tr(Q³)/3C + |Q|⁴/4) + λ⁻¹·|∇Q|²/2 ] dx")
+            print("   ⎪   φ²[ λ·(A·|Q|²/2C - B·tr(Q³)/3C + |Q|⁴/4 - bmin) + λ⁻¹·|∇Q|²/2 ] dx")
             print("   ⎭ Ω")
             print("")
             print("      ⎧")
