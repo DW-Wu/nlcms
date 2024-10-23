@@ -55,10 +55,6 @@ class LCSolve:
         # Get configuration
         self.outdir = outdir
         self.conf = LCConfig(**conf)
-        if verbose:
-            # Show functional
-            FF = LCFunc_s(**conf)
-            FF.reset_params(show=True, **conf)
         # State
         if x0 is not None:
             # user-defined initial value (highest priority)
@@ -79,6 +75,11 @@ class LCSolve:
             phiv = (np.tanh(((3 * conf.v0 / 4 / np.pi)**(1 / 3) - r) / 0.04) + 1)
             self.X.phi[:] = 4. * fft.idstn(phiv, type=1)
         self.X.proj_phi(self.conf.v0)
+        if verbose:
+            # Show functional
+            FF = LCFunc_s()
+            FF.reset_params(show=True, **conf)
+            print("size of state:", self.X.N)
 
         # Storage needed in iteration
         self.fvec = []
@@ -100,7 +101,6 @@ class LCSolve:
                 print("Solution found! |g| =", gnorm)
             self.flag = 1
             return 0
-        FF.export_conf(join(self.outdir, "conf.json"))
 
         if method == "gd":
             # Simple gradient descent
@@ -112,6 +112,9 @@ class LCSolve:
             # Gradient flow using implicit diffusion operator
             itn = self.solve_gf(FF, **kwargs)
         return itn
+    
+    def save_config(self):
+        save_lc_config(join(self.outdir, "conf.json"), self.conf)
 
     def snapshot(self, fname="solution"):
         save_lc(join(self.outdir, fname + ".npy"), self.X)
@@ -150,14 +153,17 @@ class LCSolve:
             self.fvec.append(FF.energy(X))
             if np.any(np.isnan(X.x)):
                 self.flag = -1
-                if verbose:
-                    print("NAN @ itno.", k)
                 break
             if bb:
                 s[:] = X.x[:] - s
                 y[:] = G.x
-        if verbose and self.flag == 0:
-            print("Iteration failed to converge, |g| =", gnorm)
+        if verbose:
+            if self.flag == 0:
+                print("Iteration failed to converge, |g| =", gnorm)
+            elif self.flag==1:
+                print("Iteration successful @ itno.", k, ", |g| =", gnorm)
+            elif self.flag==-1:
+                print("NAN @ itno.", k)
         return k  # return iteration number. k large implies state change
 
     def solve_gf(self, FF,
@@ -188,17 +194,18 @@ class LCSolve:
             self.fvec.append(FF.energy(X))
             if np.any(np.isnan(X.x)):
                 self.flag = -1
-                if verbose:
-                    print("NAN @ itno.", t)
                 break
             gnorm = norm(X.x - Xp.x) / eta
             if gnorm < tol:
                 self.flag = 1
-                if verbose:
-                    print("Iteration successful @ itno.", t, ", |dx/dt| =", gnorm)
                 break
-        if verbose and self.flag == 0:
-            print("Iteration failed to converge, |dx/dt| =", gnorm)
+        if verbose:
+            if self.flag == 0:
+                print("Iteration failed to converge, |dx/dt| =", gnorm)
+            elif self.flag==1:
+                print("Iteration successful @ itno.", t, ", |dx/dt| =", gnorm)
+            elif self.flag==-1:
+                print("NAN @ itno.", t)
         return t  # return iteration number
 
 
@@ -231,10 +238,18 @@ if __name__ == "__main__":
     # X = LCState_s(N, x)
     # FF.project(X, FF.v0)
 
-    solver = LCSolve(outdir=args.output, conf=c0, N=N, x0=X, load_file=not args.restart)
-    # Smoothen with gradient flow first
-    solver.solve(method='gf', maxiter=200, eta=1e-4, tol=1e-6,
-                 maxsubiter=50, subtol=0.05, verbose=False)
+    solver = LCSolve(outdir=args.output, conf=c0, N=N, x0=X,
+                     load_file=not args.restart, verbose=not args.silent)
+    solver.save_config()
+    g = FF.grad(solver.X, proj=True)
+    if norm(g.x) > 0.1:
+        # Smoothen with gradient flow first
+        solver.solve(method='gf', maxiter=200, eta=1e-4, tol=1e-6,
+                    maxsubiter=50, subtol=0.05, verbose=not args.silent)
+        plt.plot(solver.fvec)
+        plt.title("Energy in gradient flow")
+        plt.savefig(join(args.output, "energy.pdf"))
+    
     solver.solve(method='gd', maxiter=int(args.maxiter),  # default 2000
                  eta=float(args.eta),  # default 1e-6
                  tol=float(args.tol) * np.sqrt(6 * N**3),  # default 1e-8
@@ -242,14 +257,11 @@ if __name__ == "__main__":
                  bb=True)
     solver.snapshot()
 
-    plt.plot(solver.fvec)
-    plt.title("Energy in gradient flow")
-    plt.savefig(join(args.output, "energy.pdf"))
     if not args.silent:
         print("Energy = %.6f" % FF.energy(solver.X))
 
     # Export to matlab format
-    if args.matlab:
+    if args.matlab: 
         X_v = solver.X.sine_trans(sz=63)
         xxx = np.arange(1, 64) / 64.
         xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
