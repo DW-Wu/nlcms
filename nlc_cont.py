@@ -123,7 +123,7 @@ class ContTest(LCSolve):
                      self._get_fname(k + (j - i)) + '.npy')
         # Retrieve old iteration numbers, where step length did not change
         self.iternum[:i + 1] = old_iternum[:i + 1]
-        self.iternum[2 * j - i + 1:] = old_iternum[j + 1:]
+        # self.iternum[2 * j - i + 1:] = old_iternum[j + 1:]
 
     def auto_refine(self, ind=None):
         """Adaptively auto refine config range near phase changes, i.e. large
@@ -176,6 +176,12 @@ class ContTest(LCSolve):
 
     def load_state(self, i):
         return load_lc(self._get_fname(i) + ".npy")
+    
+    def snapshot(self, fname="snapshot.json"):
+        """Write runtime information into file"""
+        D={"length":self.c_arr.shape[0], "iternum":self.iternum}
+        with open(join(self.outdir,fname),mode='w') as f:
+            json.dump(D,f)
 
 
 if __name__ == "__main__":

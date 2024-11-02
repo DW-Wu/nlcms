@@ -13,6 +13,8 @@ if __name__ == "__main__":
                         help="Grid size of final view")
     parser.add_argument("-o", "--output", action="store", default="out",
                         help="Output folder name")
+    parser.add_argument("--phi-thres", action="store", default=0.5, type=float,
+                        help="Threshold value of phi")
     parser.add_argument("--no-biax", action="store_true", default=False,
                         help="Do not plot biaxiality (which is very large)")
     parser.add_argument("--no-dir", action="store_true", default=False,
@@ -174,7 +176,8 @@ def plot_director(X: LCState_s, figure=None,
     return append_pd.output
 
 
-def plot_main(fname, s, fig, out_dir, out_suffix='', phi=True, dir=True, biax=True):
+def plot_main(fname, s, fig, out_dir, phi_thres=0.5,
+              out_suffix='', phi=True, dir=True, biax=True):
     if out_suffix:
         out_suffix = '_' + out_suffix
     X = load_lc(fname)
@@ -184,11 +187,11 @@ def plot_main(fname, s, fig, out_dir, out_suffix='', phi=True, dir=True, biax=Tr
         mlab.savefig(join(out_dir, "phi%s.wrl" % out_suffix), figure=fig)
     mlab.clf(fig)
     if dir:
-        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=.6, width=0.1)
+        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=phi_thres, width=0.1)
         write_data(dir_vtk, join(out_dir, "dir%s.vtp" % out_suffix))
     mlab.clf(fig)
     if biax:
-        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=.5)
+        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=phi_thres)
         write_data(biax_vtk, join(out_dir, "biax%s.vtp" % out_suffix))
 
 
@@ -212,5 +215,6 @@ if __name__ == "__main__":
         if not fn.endswith('.npy'):
             raise ValueError("Invalid state file name")
         plot_main(fn, int(args.num_view), fig, OUTD,
+                  phi_thres=args.phi_thres,
                   out_suffix=os.path.basename(fn).removesuffix('.npy'),
                   phi=not args.no_phi, dir=not args.no_dir, biax=not args.no_biax)
