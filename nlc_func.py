@@ -184,6 +184,7 @@ class LCFunc_s:
             # integral of sines in 3d
             self.ios3 = ios[k1 - 1] * ios[k2 - 1] * ios[k3 - 1]
             self.ios3_norm2 = norm(ios)**6
+            self.ios3_h1 = np.sum(self.ios3**2/self.c_lap)
 
     def get_aux(self, N: int):
         self.aux = LCFunc_s.LCAux(N)
@@ -193,24 +194,33 @@ class LCFunc_s:
             self.aux = LCFunc_s.LCAux(x.N)
         return np.sum(self.aux.ios3 * x.phi)
 
-    def project(self, x: LCState_s, v0):
+    def project(self, x: LCState_s, v0, metric="h1"):
         """Project phi to v0
         Modifies in-place"""
         if self.aux is None or self.aux.N != x.N:
             self.aux = LCFunc_s.LCAux(x.N)
         ios3 = self.aux.ios3
-        r = self.aux.ios3_norm2
-        x.phi -= (np.sum(ios3 * x.phi) - v0) * ios3 / r
+        r = self.aux.ios3_norm2 if metric=="l2" else self.aux.ios3_h1
+        if metric=="l2":
+            # Projection under L2 inner product
+            x.phi -= (np.sum(ios3 * x.phi) - v0) * ios3 / r
+        else:
+            # Projection under H1 inner product
+            x.phi -= (np.sum(ios3 * x.phi) - v0) / r * (ios3/self.aux.c_lap)
 
-    def project_vec(self, x: np.ndarray, N, v0):
+    def project_vec(self, x: np.ndarray, N, v0, metric="h1"):
         """Project phi to v0, but with vector input.
         Returns new vector"""
         if self.aux is None or self.aux.N != N:
             self.aux = LCFunc_s.LCAux(N)
         ios3 = self.aux.ios3.ravel()
-        r = self.aux.ios3_norm2
+        r = self.aux.ios3_norm2 if metric=="l2" else self.aux.ios3_h1
         xp = np.copy(x)
-        xp[5 * N**3:] -= (np.dot(x[5 * N**3:], ios3) - v0) * ios3 / r
+        if metric=="l2":
+            xp[5 * N**3:] -= (np.dot(x[5 * N**3:], ios3) - v0) * ios3 / r
+        else:
+            xp[5 * N**3:] -= (np.dot(x[5 * N**3:], ios3) - v0) / r \
+                  * (ios3/self.aux.c_lap.ravel())
         return xp
 
     def energy(self, x: LCState_s, part='all'):
@@ -289,45 +299,57 @@ class LCFunc_s:
         g = LCState_s(N)  # gradient
         g_v = LCState_s(N)  # gradient w.r.t. values
 
-        # LdG elastic (now with mask, so evaluate with adjoints)
+        trQ3 = trace_Q3(q1, q2, q3, q4, q5)
+        bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2 - self.bmin
+        elastic=(xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2
+                + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2
+                + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2)
+        x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, xvx.phi, xvy.phi, xvz.phi) # Q∇φ
         if part != 1:
+            # LdG elastic (now with mask, so evaluate with adjoints)
             for i in range(5):
                 g.x4[i, :] = (2 if i != 2 else 6) * self.we * h3 * np.pi * (
                         self.aux.k1 * padded_dct_then_dst(phi**2 * xvx.x4[i, :], axis=0)
                         + self.aux.k2 * padded_dct_then_dst(phi**2 * xvy.x4[i, :], axis=1)
                         + self.aux.k3 * padded_dct_then_dst(phi**2 * xvz.x4[i, :], axis=2)
                 )
+                # Laplacian from void
+                g.x4[i, :] += (2 if i != 2 else 6) * self.wv1 * self.aux.c_lap * x.x4[i, :]
+                # void
+                g_v.x4[i, :] += (2 if i != 2 else 6) * self.wv * h3 * (1 - phi)**2 * xv.x4[i, :]
+            # elastic and bulk over phi is linear
+            g_v.phi[:] = 2 * h3 * phi * (self.we * elastic + self.wb*bulk)
+            # mixing Laplacian and a term from anchoring energy
+            g.phi[:] = (self.wp1+self.wa * self.sp**2 * 2 / 9) * self.aux.c_lap * x.phi
+            # diffusion of phi in anchoring energy
+            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = \
+                Qtimes(q1, q2, q3, q4, q5,
+                       2 * x1 + self.sp * 4 / 3 * xvx.phi,
+                       2 * x2 + self.sp * 4 / 3 * xvy.phi,
+                       2 * x3 + self.sp * 4 / 3 * xvz.phi)
+            g.phi[:] += self.wa * h3 * np.pi * \
+                        (self.aux.k1 * padded_dct_then_dst(d_a0_d_phix, axis=0)
+                         + self.aux.k2 * padded_dct_then_dst(d_a0_d_phiy, axis=1)
+                         + self.aux.k3 * padded_dct_then_dst(d_a0_d_phiz, axis=2))
+            # g.phi[:] += self.wa * self.sp**2 * 2 / 9 * self.aux.c_lap * x.phi
         if part != 0:
-            g_v.phi[:] = 2 * self.we * h3 * phi * (
-                    xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2
-                    + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2
-                    + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2)
-        # LdG bulk
-        if part != 0:
-            trQ3 = trace_Q3(q1, q2, q3, q4, q5)
-            bulk = self.wb2 / 2 * trQ2 + self.wb3 / 3 * trQ3 + .25 * trQ2**2 - self.bmin
+            # LdG bulk over Q
             QpA_C = trQ2 + self.wb2
-            g_v.q1[:] = self.wb * h3 * phi**2 * \
+            g_v.q1[:] += self.wb * h3 * phi**2 * \
                         (2 * QpA_C * q1 + self.wb3 * (-4 * q3 * q1 - q5 * q5 + q4 * q4))
-            g_v.q3[:] = self.wb * h3 * phi**2 * \
+            g_v.q3[:] += self.wb * h3 * phi**2 * \
                         (6 * QpA_C * q3 + self.wb3 * (6 * q3 * q3 - 2 * q1 * q1
                                                       + q5 * q5 + q4 * q4 - 2 * q2 * q2))
-            g_v.q2[:] = self.wb * h3 * phi**2 * \
+            g_v.q2[:] += self.wb * h3 * phi**2 * \
                         (2 * QpA_C * q2 + self.wb3 * (2 * q4 * q5 - 4 * q3 * q2))
-            g_v.q4[:] = self.wb * h3 * phi**2 * \
+            g_v.q4[:] += self.wb * h3 * phi**2 * \
                         (2 * QpA_C * q4 + self.wb3 * (2 * q2 * q5 + 2 * (q1 + q3) * q4))
-            g_v.q5[:] = self.wb * h3 * phi**2 * \
+            g_v.q5[:] += self.wb * h3 * phi**2 * \
                         (2 * QpA_C * q5 + self.wb3 * (2 * q2 * q4 - 2 * (q1 - q3) * q5))
-            g_v.phi[:] += 2 * self.wb * h3 * (bulk * phi)
-        # mixing energy
-        if part != 0:
+            # mixing energy
             g_v.phi[:] += 4 * self.wp0 * h3 * \
                           phi * (phi - 1) * (phi - .5)
-        if part != 1:
-            g.phi[:] = self.wp1 * self.aux.c_lap * x.phi
-        # anchoring
-        x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, xvx.phi, xvy.phi, xvz.phi)
-        if part != 0:
+            # anchoring over Q
             g_v.q1[:] += h3 * self.wa * \
                          (2 * (x1 * xvx.phi - x2 * xvy.phi)
                           + self.sp * 2 / 3 * (xvx.phi**2 - xvy.phi**2))
@@ -343,26 +365,8 @@ class LCFunc_s:
             g_v.q5[:] += h3 * self.wa * \
                          (2 * (x2 * xvz.phi + x3 * xvy.phi)
                           + self.sp * 4 / 3 * xvy.phi * xvz.phi)
-        if part != 1:
-            # Diffusion of phi in anchoring energy
-            d_a0_d_phix, d_a0_d_phiy, d_a0_d_phiz = \
-                Qtimes(q1, q2, q3, q4, q5,
-                       2 * x1 + self.sp * 4 / 3 * xvx.phi,
-                       2 * x2 + self.sp * 4 / 3 * xvy.phi,
-                       2 * x3 + self.sp * 4 / 3 * xvz.phi)
-            g.phi[:] += self.wa * h3 * np.pi * \
-                        (self.aux.k1 * padded_dct_then_dst(d_a0_d_phix, axis=0)
-                         + self.aux.k2 * padded_dct_then_dst(d_a0_d_phiy, axis=1)
-                         + self.aux.k3 * padded_dct_then_dst(d_a0_d_phiz, axis=2))
-            g.phi[:] += self.wa * self.sp**2 * 2 / 9 * self.aux.c_lap * x.phi
-        # void
-        if part != 0:
-            for i in range(5):
-                g_v.x4[i, :] += (2 if i != 2 else 6) * self.wv * h3 * (1 - phi)**2 * xv.x4[i, :]
+            # void
             g_v.phi[:] += self.wv * h3 * (phi - 1) * trQ2
-        if part != 1:
-            for i in range(5):
-                g.x4[i, :] += (2 if i != 2 else 6) * self.wv1 * self.aux.c_lap * x.x4[i, :]
 
         # chain rule: apply (adjoint) DST to value derivatives
         g1 = g_v.sine_trans()
@@ -500,7 +504,7 @@ class LCFunc_s:
                 )
             if not diffusion_only:
                 for i in range(5):
-                    # Nonlinear term
+                    # nonlinear term from LdG elastic
                     dg.x4[i, :] += (2 if i != 2 else 6) * self.we * h3 * np.pi * (
                             self.aux.k1 * padded_dct_then_dst(2 * phi * dxv.phi * xvx.x4[i], axis=0)
                             + self.aux.k2 * padded_dct_then_dst(2 * phi * dxv.phi * xvy.x4[i], axis=1)

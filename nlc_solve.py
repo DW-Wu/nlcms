@@ -69,7 +69,7 @@ class LCSolve:
                 print("Starting iteration from scratch...")
             # Initialize spherical state
             self.X = LCState_s(N)
-            xx = np.arange(1, N + 1) / N
+            xx = np.arange(1, N + 1) / (N + 1)
             xx, yy, zz = np.meshgrid(xx, xx, xx, indexing='ij')
             r = np.sqrt((xx - .5)**2 + (yy - .5)**2 + (zz - .5)**2)
             phiv = (np.tanh(((3 * conf.v0 / 4 / np.pi)**(1 / 3) - r) / 0.04) + 1)
@@ -126,11 +126,12 @@ class LCSolve:
             verbose=False,
             bb=False):
         X = self.X
+        N = X.N
         s = np.zeros_like(X.x)
         y = np.zeros_like(X.x)
         self.flag = 0
         for k in (tqdm(range(maxiter), desc="GD") \
-                if verbose else maxiter):
+                if verbose else range(maxiter)):
             G = FF.grad(X, proj=True)
             gnorm = norm(G.q) if Q_only else norm(G.x)
             if gnorm < tol:
@@ -166,7 +167,7 @@ class LCSolve:
                 print("NAN @ itno.", k)
         return k  # return iteration number. k large implies state change
 
-    def solve_gf(self, FF,
+    def solve_gf(self, FF:LCFunc_s,
             maxiter=2000,
             eta=1e-3,
             tol=1e-8,
@@ -174,7 +175,10 @@ class LCSolve:
             subtol=0.1,
             verbose=False):
         X = self.X
-        Xp = LCState_s(X.N)
+        N = X.N
+        FF.get_aux(N)
+        Xp = LCState_s(N)
+        self.flag = 0
         for t in (tqdm(range(maxiter), desc="GF") \
                 if verbose else range(maxiter)):
             G_nonlin = FF.grad(X, part=1, proj=True)
@@ -256,6 +260,10 @@ if __name__ == "__main__":
                  verbose=not args.silent,  # default True
                  bb=True)
     solver.snapshot()
+    plt.clf()
+    plt.plot(solver.fvec)
+    plt.title("Energy in gradient descent")
+    plt.savefig(join(args.output, "energy_gd.pdf"))
 
     if not args.silent:
         print("Energy = %.6f" % FF.energy(solver.X))
