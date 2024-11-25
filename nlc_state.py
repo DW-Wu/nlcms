@@ -4,7 +4,7 @@ import scipy.fft as fft
 """Definition of 3D NLC state LdG tensor by Fourier spectral method"""
 
 
-def padded_dct_then_dst(x, axis):
+def cos_trans(x, axis):
     N1, N2, N3 = x.shape
     if axis == 0:
         return .125 * fft.dstn(fft.dctn(
@@ -87,7 +87,7 @@ class LCState_s:
             np.arange(1, N + 1).reshape([N, 1, 1])
         xv = LCState_s(self.N)
         for i in range(6):
-            xv.x4[i, :] = padded_dct_then_dst(np.pi * k1 * self.x4[i, :], axis=0)
+            xv.x4[i, :] = cos_trans(np.pi * k1 * self.x4[i, :], axis=0)
         return xv
 
     def ydiff(self, aux_k2=None):
@@ -97,7 +97,7 @@ class LCState_s:
             np.arange(1, N + 1).reshape([1, N, 1])
         xv = LCState_s(N)
         for i in range(6):
-            xv.x4[i, :] = padded_dct_then_dst(np.pi * k2 * self.x4[i, :], axis=1)
+            xv.x4[i, :] = cos_trans(np.pi * k2 * self.x4[i, :], axis=1)
         return xv
 
     def zdiff(self, aux_k3=None):
@@ -107,7 +107,7 @@ class LCState_s:
             np.arange(1, N + 1).reshape([1, 1, N])
         xv = LCState_s(N)
         for i in range(6):
-            xv.x4[i, :] = padded_dct_then_dst(np.pi * k3 * self.x4[i, :], axis=2)
+            xv.x4[i, :] = cos_trans(np.pi * k3 * self.x4[i, :], axis=2)
         return xv
 
     def values_x(self, x, y, z, phi_only=False):
@@ -188,6 +188,6 @@ if __name__ == "__main__":
         Y.x[:] = np.random.randn(6 * N**3)
         Xx = X.xdiff()
         print(np.sum(Xx.q1 * Y.q1),
-              np.sum(X.q1 * np.pi * k1 * padded_dct_then_dst(Y.q1, axis=0)))
+              np.sum(X.q1 * np.pi * k1 * cos_trans(Y.q1, axis=0)))
 
     X1 = X.sine_trans(sz=31)

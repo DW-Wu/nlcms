@@ -31,11 +31,8 @@ $$A=-1500, B=6400,C=3500, l_0=2\times 10^{-7}, V_0=0.1, \varepsilon=0.005, \omeg
 ![Radial](img/radial.png)
 ![Split-core](img/splitcore.png)
 ![Ring](img/ring.png)
-- To obtain the radial state, start with a spherical region. Any reasonable step size works.
-- To obtain the split-core state, start with a prolate sphere. The test with level sets of
-$(x-0.5)^2+(y-0.5)^2+0.8 (z-0.5)^2$
-works. One should also choose a smaller step size.
-- To obtain the radial state, start with an oblate sphere. The test with level sets of $(x-0.5)^2+(y-0.5)^2+1.1 (z-0.5)^2$ works.
 
 The configuration `tactoid.json` is the same as `ring.json` except that $l_0=2\times 10^{-6}$. It yields the tactoid.
 ![Tactoid](img/tactoid.png)
+
+The solutions above can be obtained from scratch by running the script `bootstrap.py`.
