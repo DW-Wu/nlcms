@@ -194,19 +194,18 @@ class LCFunc_s:
             self.aux = LCFunc_s.LCAux(x.N)
         return np.sum(self.aux.ios3 * x.phi)
 
-    def project(self, x: LCState_s, v0, metric="h1"):
-        """Project phi to v0
-        Modifies in-place"""
-        if self.aux is None or self.aux.N != x.N:
-            self.aux = LCFunc_s.LCAux(x.N)
+    def project(self, phi: LCState_s, v0, metric="h1"):
+        """Project phi to v0 by modifing in-place"""
+        if self.aux is None or self.aux.N != phi.shape[0]:
+            self.aux = LCFunc_s.LCAux(phi.shape[0])
         ios3 = self.aux.ios3
         r = self.aux.ios3_norm2 if metric == "l2" else self.aux.ios3_h1
         if metric == "l2":
             # Projection under L2 inner product
-            x.phi -= (np.sum(ios3 * x.phi) - v0) * ios3 / r
+            phi[:] -= (np.sum(ios3 * phi) - v0) * ios3 / r
         else:
             # Projection under H1 inner product
-            x.phi -= (np.sum(ios3 * x.phi) - v0) / r * (ios3 / self.aux.c_lap)
+            phi[:] -= (np.sum(ios3 * phi) - v0) / r * (ios3 / self.aux.c_lap)
 
     def project_vec(self, x: np.ndarray, N, v0, metric="h1"):
         """Project phi to v0, but with vector input.
@@ -216,11 +215,7 @@ class LCFunc_s:
         ios3 = self.aux.ios3.ravel()
         r = self.aux.ios3_norm2 if metric == "l2" else self.aux.ios3_h1
         xp = np.copy(x)
-        if metric == "l2":
-            xp[5 * N**3:] -= (np.dot(x[5 * N**3:], ios3) - v0) * ios3 / r
-        else:
-            xp[5 * N**3:] -= (np.dot(x[5 * N**3:], ios3) - v0) / r \
-                             * (ios3 / self.aux.c_lap.ravel())
+        self.project(xp[5 * N**3:].reshape([N, N, N]), v0, metric)
         return xp
 
     def energy(self, x: LCState_s, part='all'):
@@ -372,7 +367,7 @@ class LCFunc_s:
         g1 = g_v.sine_trans()
         g.x += g1.x
         if proj:
-            self.project(g, 0)
+            self.project(g.phi, 0)
         return g
 
     def grad_vec(self, x: np.ndarray, N, proj=True):
@@ -382,7 +377,7 @@ class LCFunc_s:
             x = self.project_vec(x, N, self.conf.v0)
         g = self.grad(view_as_lc(x, N))
         if proj:
-            g.proj_phi(0)
+            self.project(g.phi, 0)
         return g.x
 
     def gradQ(self, x: LCState_s):
@@ -441,7 +436,7 @@ class LCFunc_s:
 
             if proj:
                 # g must also satisfy constraint
-                self.project(g, 0)
+                self.project(g.phi, 0)
             return g.x
 
         return LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
@@ -478,6 +473,60 @@ class LCFunc_s:
         elastic = xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2 \
                   + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2 \
                   + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2
+
+        def diffusion_Q(dq, compute_phi_variation_as_well=False):
+            """Diffusion operator of Q component in vector form.
+            Variation in the phi-variation may also be needed, since derivatives
+            of dQ should be computed only once
+            """
+            nonlocal self, phi, xvx, xvy, xvz, N, h3
+            dq = dq.reshape([5, N, N, N])
+            d_elastic = np.zeros_like(dq)
+            y = np.zeros([5, N, N, N])
+            for i in range(5):
+                # derivatives of dQ
+                dqx_v = np.pi * cos_trans(self.aux.k1 * dq[i], axis=0)
+                dqy_v = np.pi * cos_trans(self.aux.k2 * dq[i], axis=1)
+                dqz_v = np.pi * cos_trans(self.aux.k3 * dq[i], axis=2)
+                # variation in elastic energy |∇Q|^2
+                d_elastic += (1 if i != 2 else 3) * (xvx.x4[i] * dqx_v + xvy.x4[i] * dqy_v + xvz.x4[i] * dqz_v)
+                # elastic energy and laplacian from void
+                y[i] = (2 if i != 2 else 6) * (
+                        self.we * h3 * np.pi * (
+                        self.aux.k1 * cos_trans(phi**2 * dqx_v, axis=0)
+                        + self.aux.k2 * cos_trans(phi**2 * dqy_v, axis=1)
+                        + self.aux.k3 * cos_trans(phi**2 * dqz_v, axis=2))
+                        + self.wv1 * self.aux.c_lap * dq[i])
+            if compute_phi_variation_as_well:
+                # influence of dQ on phi-variation of full energy
+                z = 4. * self.we * h3 * phi * d_elastic
+                return y.ravel(), z.ravel()
+            else:
+                return y.ravel()
+
+        def diffusion_phi(dphi):
+            """Diffusion operator of phi component, in vector form"""
+            nonlocal self, xv, N, h3
+            dphi = dphi.reshape([N, N, N])
+            # mixing laplacian
+            y = (self.wp1 + self.wa * self.sp**2 * 2 / 9) * self.aux.c_lap * dphi
+            # anchoring
+            dphix_v = np.pi * cos_trans(self.aux.k1 * dphi, axis=0)
+            dphiy_v = np.pi * cos_trans(self.aux.k2 * dphi, axis=1)
+            dphiz_v = np.pi * cos_trans(self.aux.k3 * dphi, axis=2)
+            dx1_lin, dx2_lin, dx3_lin = \
+                Qtimes(q1, q2, q3, q4, q5, dphix_v, dphiy_v, dphiz_v)
+            dd_a0_d_phix_l, dd_a0_d_phiy_l, dd_a0_d_phiz_l = \
+                Qtimes(q1, q2, q3, q4, q5,
+                       2 * dx1_lin + self.sp * 4 / 3 * dphix_v,
+                       2 * dx2_lin + self.sp * 4 / 3 * dphiy_v,
+                       2 * dx3_lin + self.sp * 4 / 3 * dphiz_v
+                       )
+            y += self.wa * h3 * np.pi * \
+                 (self.aux.k1 * cos_trans(dd_a0_d_phix_l, axis=0)
+                  + self.aux.k2 * cos_trans(dd_a0_d_phiy_l, axis=1)
+                  + self.aux.k3 * cos_trans(dd_a0_d_phiz_l, axis=2))
+            return y.ravel()
 
         def _matvec(v):
             nonlocal diffusion_only, proj
@@ -619,7 +668,7 @@ class LCFunc_s:
             dg.x += dg1.x
             # Project gradient to meet volume constraint
             if proj:
-                self.project(dg, 0)
+                self.project(dg.phi, 0)
             return dg.x
 
         N = x.N

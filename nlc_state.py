@@ -4,19 +4,27 @@ import scipy.fft as fft
 """Definition of 3D NLC state LdG tensor by Fourier spectral method"""
 
 
+def sine_trans(x, s=None):
+    """Get function value from coefficients by applying 3D sine transform.
+    Manually scale by 1/8 to cancel factor 2 in standard form."""
+    return .125 * fft.dstn(x, type=1, axes=(-3, -2, -1), s=s)  # Apply to last 3 axes
+
+
 def cos_trans(x, axis):
+    """Apply cosine transform in one axis and sine transform in the others
+    used when computing derivatives from Fourier coefficients."""
     N1, N2, N3 = x.shape
-    if axis == 0:
+    if axis == 0 or axis == 'x':
         return .125 * fft.dstn(fft.dctn(
             np.concatenate([np.zeros([1, N2, N3]), x], axis=0),
             type=1, s=N1 + 2, axes=0)[1:N1 + 1, :, :],
                                type=1, axes=(1, 2))
-    elif axis == 1:
+    elif axis == 1 or axis == 'y':
         return .125 * fft.dstn(fft.dctn(
             np.concatenate([np.zeros([N1, 1, N3]), x], axis=1),
             type=1, s=N2 + 2, axes=1)[:, 1:N2 + 1, :],
                                type=1, axes=(0, 2))
-    elif axis == 2:
+    elif axis == 2 or axis == 'z':
         return .125 * fft.dstn(fft.dctn(
             np.concatenate([np.zeros([N1, N2, 1]), x], axis=2),
             type=1, s=N3 + 2, axes=2)[:, :, 1:N3 + 1],
@@ -53,14 +61,8 @@ class LCState_s:
         if sz is None:
             sz = self.N
         sz = (sz, sz, sz)
-        # DST with manual scaling (cancel factor 2 in standard form)
-        q1 = .125 * fft.dstn(self.q1, type=1, s=sz)
-        q2 = .125 * fft.dstn(self.q2, type=1, s=sz)
-        q3 = .125 * fft.dstn(self.q3, type=1, s=sz)
-        q4 = .125 * fft.dstn(self.q4, type=1, s=sz)
-        q5 = .125 * fft.dstn(self.q5, type=1, s=sz)
-        phi = .125 * fft.dstn(self.phi, type=1, s=sz)
-        return q1, q2, q3, q4, q5, phi
+        A = sine_trans(self.x4, s=sz)  # Operate on 6 arrays simultaneously
+        return A[0], A[1], A[2], A[3], A[4], A[5]
 
     def sine_trans(self, sz=None):
         """Compute function values with type-I DST (identical in form as IDST).
@@ -68,14 +70,13 @@ class LCState_s:
         if sz is None:
             sz = self.N
         x1 = LCState_s(sz)
-        for i in range(6):
-            x1.x4[i, :] = .125 * fft.dstn(self.x4[i, :], type=1, s=(sz, sz, sz))
+        x1.x4[:] = sine_trans(self.x4, s=(sz, sz, sz))  # Operate on 6 arrays simultaneously
         return x1
 
     def phi_values(self, sz=None):
         if sz is None:
             sz = self.N
-        return .125 * fft.dstn(self.phi, type=1, s=(sz, sz, sz))
+        return sine_trans(self.phi, s=(sz, sz, sz))
 
     def xdiff(self, aux_k1=None):
         """Compute value of x-derivatives at corresponding grid points
@@ -135,14 +136,6 @@ class LCState_s:
             return q1, q2, q3, q4, q5, phi
         return phi
 
-    def proj_phi(self, v0):
-        """Project phi to `v0`"""
-        foo = 2. / np.pi / np.arange(1, self.N + 1)
-        foo[1::2] = 0
-        int_of_sines = foo.reshape([self.N, 1, 1]) * foo.reshape([1, self.N, 1]) * foo.reshape([1, 1, self.N])
-        s = np.sum(foo**2)
-        self.phi -= (np.sum(int_of_sines * self.phi) - v0) * int_of_sines / s**3
-
 
 def resize_lc(X: LCState_s, N1):
     """Resize to a different frequency by padding 0's or truncating."""
@@ -182,7 +175,7 @@ if __name__ == "__main__":
     X = LCState_s(N)
     Y = LCState_s(N)
     k1 = np.arange(1, N + 1).reshape([N, 1, 1])
-    # Adjoint of the differentiation operator
+    # Test adjoint of the differentiation operator
     for i in range(10):
         X.x[:] = np.random.randn(6 * N**3)
         Y.x[:] = np.random.randn(6 * N**3)
