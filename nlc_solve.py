@@ -37,6 +37,7 @@ import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy
+import datetime
 from scipy.optimize import fmin_cg
 from scipy.sparse.linalg import lobpcg, gmres
 from tqdm import tqdm
@@ -93,7 +94,7 @@ class LCSolve:
         FF = LCFunc_s(**self.conf)
         # FF.reset_conf(self.conf)
         FF.get_aux(N)
-        G = FF.grad(self.X, proj=True)
+        G = FF.grad(self.X, proj=kwargs.get("metric", "h1"))
         gnorm = norm(G.x)
         self.fvec = [FF.energy(self.X)]
         if gnorm < kwargs.get('tol', 1e-8):
@@ -102,24 +103,35 @@ class LCSolve:
             self.flag = 1
             return 0
 
-        if method == "gd":
-            # Simple gradient descent
-            itn = self.solve_gd(FF, Q_only=False, **kwargs)
-        elif method == "Q-gd":
-            # Gradient descent, but only in Q direction
-            itn = self.solve_gd(FF, Q_only=True, **kwargs)
-        elif method == "gf":
-            # Gradient flow using implicit diffusion operator
-            itn = self.solve_gf(FF, **kwargs)
-        return itn
+        try:
+            if method == "gd":
+                # Simple gradient descent
+                itn = self.solve_gd(FF, Q_only=False, **kwargs)
+            elif method == "Q-gd":
+                # Gradient descent, but only in Q direction
+                itn = self.solve_gd(FF, Q_only=True, **kwargs)
+            elif method == "gf":
+                # Gradient flow using implicit diffusion operator
+                itn = self.solve_gf(FF, **kwargs)
+            elif method == "newton":
+                itn = self.solve_newton(FF, **kwargs)
+            return itn
+        except KeyboardInterrupt:
+            print("Error. Saving current state.")
+            self.snapshot()
 
     def save_config(self):
         save_lc_config(join(self.outdir, "conf.json"), self.conf)
 
-    def snapshot(self, fname="solution"):
+    def snapshot(self, fname=None):
+        if fname is None:
+            fname = "solution_" + \
+                    datetime.datetime.strftime(datetime.datetime.now(), "%Y%m%d%H%M%S")
         save_lc(join(self.outdir, fname + ".npy"), self.X)
 
-    def solve_gd(self, FF, Q_only=False,
+    def solve_gd(self, FF: LCFunc_s,
+                 Q_only=False,
+                 metric="h1",
                  maxiter=2000,
                  eta=1e-3,
                  tol=1e-8,
@@ -130,9 +142,9 @@ class LCSolve:
         s = np.zeros_like(X.x)
         y = np.zeros_like(X.x)
         self.flag = 0
-        for k in (tqdm(range(maxiter), desc="GD") \
+        for k in (tqdm(range(maxiter), desc="GD", ncols=80) \
                 if verbose else range(maxiter)):
-            G = FF.grad(X, proj=True)
+            G = FF.grad(X, proj=metric)
             gnorm = norm(G.q) if Q_only else norm(G.x)
             if gnorm < tol:
                 self.flag = 1
@@ -150,7 +162,8 @@ class LCSolve:
             X.q[:] -= a * G.q
             if not Q_only:
                 X.phi[:] -= a * G.phi
-                FF.project(X.phi, FF.v0)
+                if k % 100 == 0:
+                    FF.project(X.phi, FF.v0, metric=metric)
             self.fvec.append(FF.energy(X))
             if np.any(np.isnan(X.x)):
                 self.flag = -1
@@ -168,6 +181,7 @@ class LCSolve:
         return k  # return iteration number. k large implies state change
 
     def solve_gf(self, FF: LCFunc_s,
+                 metric="h1",
                  maxiter=2000,
                  eta=1e-3,
                  tol=1e-8,
@@ -179,11 +193,19 @@ class LCSolve:
         FF.get_aux(N)
         Xp = LCState_s(N)
         self.flag = 0
-        for t in (tqdm(range(maxiter), desc="GF") \
+        if metric == "h1":
+            # use inverse laplacian as preconditioner on phi
+            precon = LinearOperator(
+                dtype=float, shape=(6 * N**3, 6 * N**3),
+                matvec=lambda v: np.hstack([v[0:5 * N**3], v[5 * N**3:] / FF.aux.c_lap.ravel()]))
+        else:
+            precon = None
+        for t in (tqdm(range(maxiter), desc="GF", ncols=80) \
                 if verbose else range(maxiter)):
-            G_nonlin = FF.grad(X, part=1, proj=True)
+            G_nonlin = FF.grad(X, part=1, proj=metric)
             Xp.x[:] = X.x
-            D = FF.diffusion(Xp, proj=True)
+            # D = FF.diffusion(Xp, proj=metric)
+            D = FF.hess(Xp, part="diffusion", proj=metric)
 
             # An implicit step involves solving the anchoring diffusion operator
             # We use GMRES
@@ -192,9 +214,12 @@ class LCSolve:
                                  matvec=lambda v: v + eta * (D @ v))
             # Solve implicit equation in phi using GMRES (very loose conditions)
             x_new, _ = gmres(IpD, Y, Xp.x,
-                             rtol=subtol * eta, restart=20, maxiter=maxsubiter)
+                             rtol=subtol * eta,
+                             restart=20,
+                             M=precon,
+                             maxiter=maxsubiter)
             X.x[:] = x_new
-            FF.project(X.phi, FF.v0)
+            FF.project(X.phi, FF.v0, metric=metric)
             self.fvec.append(FF.energy(X))
             if np.any(np.isnan(X.x)):
                 self.flag = -1
@@ -211,6 +236,57 @@ class LCSolve:
             elif self.flag == -1:
                 print("NAN @ itno.", t)
         return t  # return iteration number
+
+    @profiler
+    def solve_newton(self, FF: LCFunc_s,
+                     maxiter=2000,
+                     eta=0.1,
+                     tol=1e-8,
+                     maxsubiter=50,
+                     gmres_restart=20,
+                     subtol=0.1,
+                     verbose=False):
+        """Newton iteration:
+            x^{k+1} = x^k - H^k \ g^k
+        where H^k is Hessian at x^k and g^k is gradient at x^k"""
+        X = self.X
+        FF.get_aux(X.N)
+        self.flag = 0
+        g = FF.grad(X, proj="h1")
+        for t in range(maxiter):
+            gnorm = norm(g.x)
+            if verbose:
+                print(datetime.datetime.now())
+                print("Newton itno. %d, |g| = %.6e" % (t, gnorm))
+                print('=' * 80)
+            if gnorm < tol:
+                self.flag = 1
+                break
+            H = FF.hess(X, proj="h1")
+            dx, _ = gmres(H, g.x, x0=g.x,
+                          rtol=subtol,
+                          restart=gmres_restart,
+                          maxiter=maxsubiter)
+            Hdx = H @ dx
+            if verbose:
+                print("GMRes relative error:", norm(Hdx - g.x) / norm(g.x))
+            if eta < 1. and gnorm > .5:
+                # damp when gradient is large
+                X.x -= eta * dx
+            else:
+                X.x -= dx
+            FF.project(X.phi, FF.conf.v0)
+            if np.any(np.isnan(X.x)):
+                self.flag = -1
+                break
+            g = FF.grad(X, proj="h1")
+        if verbose:
+            if self.flag == 0:
+                print("Iteration failed to converge, |g| =", gnorm)
+            elif self.flag == 1:
+                print("Iteration successful @ itno.", t, ", |g| =", gnorm)
+            elif self.flag == -1:
+                print("NAN @ itno.", t)
 
 
 if __name__ == "__main__":
@@ -245,7 +321,8 @@ if __name__ == "__main__":
     solver = LCSolve(outdir=args.output, conf=c0, N=N, x0=X,
                      load_file=not args.restart, verbose=not args.silent)
     solver.save_config()
-    g = FF.grad(solver.X, proj=True)
+    g = FF.grad(solver.X, proj="h1")
+    print(norm(g.x))
     if norm(g.x) > 0.1:
         # Smoothen with gradient flow first
         solver.solve(method='gf', maxiter=200, eta=1e-4, tol=1e-6,
@@ -259,7 +336,7 @@ if __name__ == "__main__":
                  tol=float(args.tol) * np.sqrt(6 * N**3),  # default 1e-8
                  verbose=not args.silent,  # default True
                  bb=True)
-    solver.snapshot()
+    solver.snapshot("solution")
     plt.clf()
     plt.plot(solver.fvec)
     plt.title("Energy in gradient descent")
@@ -296,3 +373,5 @@ if __name__ == "__main__":
         print("Smallest eigenvalues:", lam)
         # save_lc("eig1.npy",LCState_s(N,V[:,0],copy=True))
         # save_lc("eig2.npy",LCState_s(N,V[:,1],copy=True))
+
+    print_profile()
