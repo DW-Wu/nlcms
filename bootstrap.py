@@ -37,7 +37,7 @@ if args.name == "ring":
                  bb=True, verbose=not args.silent)  # H1 grad descent
     solver.solve(method='gd', metric="l2", maxiter=5000, eta=1e-4, tol=1e-8,
                  bb=True, verbose=not args.silent)  # L2 grad descent (different)
-    solver.snapshot(fname="ring48")
+    solver.snapshot(fname="ring%d" % (N + 1))
     print("ring found", datetime.datetime.now())
 
 if args.name == "score":
@@ -57,7 +57,7 @@ if args.name == "score":
                  bb=True, verbose=True)
     solver.solve(method='gd', metric="l2", maxiter=10000, eta=5e-4, tol=1e-8,
                  bb=True, verbose=True)
-    solver.snapshot(fname="score48")
+    solver.snapshot(fname="score%d" % (N + 1))
     print("split-core found", datetime.datetime.now())
 
 if args.name == "radial":
@@ -77,13 +77,13 @@ if args.name == "radial":
                      bb=True, verbose=not args.silent)  # H1 grad descent
         solver.snapshot("radial_temp")
     else:
-        solver.X = load_lc("radial_temp.npy", resize=47)
+        solver.X = load_lc("radial_temp.npy", resize=N)
     # It seems that radial is a saddle point between ring and split-core
     # So we use Newton method
     # iteration takes ~12h
-    solver.solve(method="newton", maxiter=100, eta=0.8, tol=1e-8,
-                 maxsubiter=200, gmres_restart=20, subtol=0.05, verbose=True)
-    solver.snapshot("radial48")
+    solver.solve(method="newton", maxiter=100, eta=0.8, tol=1e-7,
+                 maxsubiter=100, gmres_restart=40, subtol=0.1, verbose=True)
+    solver.snapshot("radial%d" % (N + 1))
     print("radial found", datetime.datetime.now())
 
 if args.name == "tactoid":
@@ -97,7 +97,7 @@ if args.name == "tactoid":
     print("search for tactoid starts.", datetime.datetime.now())
     solver.solve(method='Q-gd', metric="l2", maxiter=200, eta=1e-4, tol=1e-8, bb=True, verbose=True)
     solver.solve(method='gd', metric="l2", maxiter=20000, eta=1e-4, tol=1e-8, bb=True, verbose=True)
-    solver.snapshot("tactoid48")
+    solver.snapshot("tactoid%d" % (N + 1))
     print("tactoid found", datetime.datetime.now())
     # Use this solution as initial value, and change lam to 2e-5
     # You get an even pointier tactoid

@@ -563,7 +563,7 @@ class LCFunc_s:
             nonlocal self, xv, N, h3
             nonlocal q1, q2, q3, q4, q5, phi, trQ2, QpA_C, bulk
             nonlocal gvb1, gvb2, gvb3, gvb4, gvb5
-            dx = view_as_lc(v, N)  # variation
+            dx = view_as_lc(np.copy(v), N)  # variation
             if proj:
                 # Project input vector
                 v_normal = self.vol_con_normal(dx.phi, 0, metric=proj)

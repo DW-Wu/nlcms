@@ -116,9 +116,10 @@ class LCSolve:
             elif method == "newton":
                 itn = self.solve_newton(FF, **kwargs)
             return itn
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as msg:
             print("Error. Saving current state.")
             self.snapshot()
+            raise KeyboardInterrupt(msg)
 
     def save_config(self):
         save_lc_config(join(self.outdir, "conf.json"), self.conf)
@@ -252,9 +253,12 @@ class LCSolve:
         X = self.X
         FF.get_aux(X.N)
         self.flag = 0
-        g = FF.grad(X, proj="h1")
+        gnvec = []
+        dxvec = []
         for t in range(maxiter):
+            g = FF.grad(X, proj="h1")
             gnorm = norm(g.x)
+            gnvec.append(gnorm)
             if verbose:
                 print(datetime.datetime.now())
                 print("Newton itno. %d, |g| = %.6e" % (t, gnorm))
@@ -267,9 +271,9 @@ class LCSolve:
                           rtol=subtol,
                           restart=gmres_restart,
                           maxiter=maxsubiter)
-            Hdx = H @ dx
+            dxvec.append(norm(dx))
             if verbose:
-                print("GMRes relative error:", norm(Hdx - g.x) / norm(g.x))
+                print("GMRes relative error:", norm(H @ dx - g.x) / norm(g.x))
             if eta < 1. and gnorm > .5:
                 # damp when gradient is large
                 X.x -= eta * dx
@@ -279,7 +283,6 @@ class LCSolve:
             if np.any(np.isnan(X.x)):
                 self.flag = -1
                 break
-            g = FF.grad(X, proj="h1")
         if verbose:
             if self.flag == 0:
                 print("Iteration failed to converge, |g| =", gnorm)
