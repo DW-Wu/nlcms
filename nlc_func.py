@@ -284,7 +284,6 @@ class LCFunc_s:
                                                      + x.q5**2))
         return E
 
-    @profiler
     def energy_vec(self, x: np.ndarray, N, proj="h1"):
         """To prevent roundoff error, project x to v0 when input is vector"""
         if proj:
@@ -394,7 +393,6 @@ class LCFunc_s:
             g.phi -= self.vol_con_normal(g.phi, 0, metric="l2")
         return g
 
-    @profiler
     def grad_vec(self, x: np.ndarray, N, proj="h1"):
         """Evaluate gradient with vector input"""
         return self.grad(view_as_lc(x, N), proj=proj).x

@@ -8,7 +8,7 @@ from argparse import ArgumentParser
 
 parser = ArgumentParser(prog="bootstrap",
                         description="Bootstrap construction of special solutions")
-parser.add_argument("name", choices=["radial", "ring", "score", "tactoid"],
+parser.add_argument("name", choices=["radial", "ring", "score", "tactoid", "pointy"],
                     help="Name of solution")
 parser.add_argument("-s", "--silent", action="store_true", default=False,
                     help="Silent run (no progress bars)")
@@ -81,7 +81,8 @@ if args.name == "radial":
     # It seems that radial is a saddle point between ring and split-core
     # So we use Newton method
     # iteration takes ~12h
-    solver.solve(method="newton", maxiter=100, eta=0.8, tol=1e-7,
+    solver.X = load_lc("radial48-1209.npy", resize=47)  # test code. delete later
+    solver.solve(method="newton", maxiter=100, eta=0.8, tol=3e-8,
                  maxsubiter=100, gmres_restart=40, subtol=0.1, verbose=True)
     solver.snapshot("radial%d" % (N + 1))
     print("radial found", datetime.datetime.now())
@@ -99,7 +100,19 @@ if args.name == "tactoid":
     solver.solve(method='gd', metric="l2", maxiter=20000, eta=1e-4, tol=1e-8, bb=True, verbose=True)
     solver.snapshot("tactoid%d" % (N + 1))
     print("tactoid found", datetime.datetime.now())
-    # Use this solution as initial value, and change lam to 2e-5
-    # You get an even pointier tactoid
+
+if args.name == "pointy":
+    # Testified bootstrap of tactoid (volume=0.1)
+    r = np.sqrt((xx - .5)**2 + (yy - .5)**2 + 0.9 * (zz - .5)**2)
+    phiv = (np.tanh((0.287941 - r) / 0.01) + 1)
+    X0 = LCState_s(N)
+    c.lam = 1.5e-5
+    X0.phi[:] = 4. * fft.idstn(phiv, type=1)
+    solver = LCSolve(outdir='.', conf=c, N=N, x0=X0, load_file=False, verbose=True)
+    print("search for pointy tactoid starts.", datetime.datetime.now())
+    solver.solve(method='Q-gd', metric="l2", maxiter=200, eta=1e-4, tol=1e-8, bb=True, verbose=True)
+    solver.solve(method='gd', metric="l2", maxiter=20000, eta=1e-4, tol=1e-8, bb=True, verbose=True)
+    solver.snapshot("pointy%d" % (N + 1))
+    print("pointy tactoid found", datetime.datetime.now())
 
 print_profile()

@@ -143,8 +143,8 @@ class LCSolve:
         s = np.zeros_like(X.x)
         y = np.zeros_like(X.x)
         self.flag = 0
-        for k in (tqdm(range(maxiter), desc="GD", ncols=80) \
-                if verbose else range(maxiter)):
+        for k in (tqdm(range(maxiter), desc="GD", ncols=80)
+                  if verbose else range(maxiter)):
             G = FF.grad(X, proj=metric)
             gnorm = norm(G.q) if Q_only else norm(G.x)
             if gnorm < tol:
@@ -201,8 +201,8 @@ class LCSolve:
                 matvec=lambda v: np.hstack([v[0:5 * N**3], v[5 * N**3:] / FF.aux.c_lap.ravel()]))
         else:
             precon = None
-        for t in (tqdm(range(maxiter), desc="GF", ncols=80) \
-                if verbose else range(maxiter)):
+        for t in (tqdm(range(maxiter), desc="GF", ncols=80)
+                  if verbose else range(maxiter)):
             G_nonlin = FF.grad(X, part=1, proj=metric)
             Xp.x[:] = X.x
             # D = FF.diffusion(Xp, proj=metric)
@@ -266,11 +266,13 @@ class LCSolve:
             if gnorm < tol:
                 self.flag = 1
                 break
+            bad_rate = (t > 3 and all([gnvec[-i] > .95 * gnvec[-i - 1]
+                                       for i in (1, 2, 3)]))
             H = FF.hess(X, proj="h1")
             dx, _ = gmres(H, g.x, x0=g.x,
                           rtol=subtol,
-                          restart=gmres_restart,
-                          maxiter=maxsubiter)
+                          restart=gmres_restart + 10 if bad_rate else gmres_restart,
+                          maxiter=maxsubiter * 2 if bad_rate else maxsubiter)
             dxvec.append(norm(dx))
             if verbose:
                 print("GMRes relative error:", norm(H @ dx - g.x) / norm(g.x))
@@ -334,7 +336,8 @@ if __name__ == "__main__":
         plt.title("Energy in gradient flow")
         plt.savefig(join(args.output, "energy.pdf"))
 
-    solver.solve(method='gd', maxiter=int(args.maxiter),  # default 2000
+    solver.solve(method='gd', metric="l2",
+                 maxiter=int(args.maxiter),  # default 2000
                  eta=float(args.eta),  # default 1e-6
                  tol=float(args.tol) * np.sqrt(6 * N**3),  # default 1e-8
                  verbose=not args.silent,  # default True

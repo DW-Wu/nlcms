@@ -32,7 +32,9 @@ $$A=-1500, B=6400,C=3500, l_0=2\times 10^{-7}, V_0=0.1, \varepsilon=0.005, \omeg
 ![Split-core](img/splitcore.png)
 ![Ring](img/ring.png)
 
-The configuration `tactoid.json` is the same as `ring.json` except that $l_0=2\times 10^{-6}$. It yields the tactoid.
+The configuration `tactoid.json` is the same as `ring.json` except that $l_0=2\times 10^{-6}$.
+
+A perfect tactoid can be found with $l_0=1.5\times 10^{-5}$, as follows.
 ![Tactoid](img/tactoid.png)
 
 The solutions above can be obtained from scratch by running the script `bootstrap.py`.
