@@ -368,7 +368,7 @@ if __name__ == "__main__":
     if args.post == "plot":
         # Leave plotting to the other script
         subprocess.run([PY_EXE, "nlc_plot.py", join(args.output, "solution.npy"),
-                        "-N=127", "-o", args.output])
+                        "-N=63", "-o", args.output])
     elif args.post == "eigen":
         H = FF.hess(X)
         lam, V = lobpcg(H, np.eye(6 * N**3, 3),

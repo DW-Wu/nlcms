@@ -60,12 +60,6 @@ def trace_Q3(q1, q2, q3, q4, q5):
 
 
 @profiler
-def biaxiality(q1, q2, q3, q4, q5):
-    """tr(Q^3)^2/tr(Q^2)^3, which is between 0 and 1/6"""
-    return 1 - 6 * trace_Q3(q1, q2, q3, q4, q5)**2 / (trace_Q2(q1, q2, q3, q4, q5)**3 + 1e-14)
-
-
-@profiler
 def Q_eigval(q1, q2, q3, q4, q5, largest=False):
     # coefficients
     p = -(q1**2 + q2**2 + 3 * q3**2 + q4**2 + q5**2)

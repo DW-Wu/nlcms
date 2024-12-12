@@ -1,39 +1,83 @@
-import os
-from glob import glob
-from os.path import join
 from argparse import ArgumentParser
+from glob import glob
+import numpy as np
+import os
+from os.path import join, exists, basename
+from vtk import *
 
-# Parse argument first
-# Do not load mayavi engine if only asking for help message
-if __name__ == "__main__":
-    parser = ArgumentParser(prog="nlc_plot",
-                            description="Plot 3D NLC state using Mayavi engine")
-    parser.add_argument("files", nargs='*', action="store", help="Input file(s)")
-    parser.add_argument("-N", "--num_view", action="store", default=127,
-                        help="Grid size of final view")
-    parser.add_argument("-o", "--output", action="store", default="out",
-                        help="Output folder name")
-    parser.add_argument("--phi-thres", action="store", default=0.5, type=float,
-                        help="Threshold value of phi")
-    parser.add_argument("--no-biax", action="store_true", default=False,
-                        help="Do not plot biaxiality (which is very large)")
-    parser.add_argument("--no-dir", action="store_true", default=False,
-                        help="Do not plot directors")
-    parser.add_argument("--no-phi", action="store_true", default=False,
-                        help="Do not plot φ contours")
-    args = parser.parse_args()
-
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-from matplotlib.colors import Normalize
-from mayavi import mlab
-from tvtk.api import tvtk, write_data
-
-from nlc_state import *
-from nlc_func import biaxiality
+from nlc_func import *
 
 
-def points_fcc(xlim=(0, 1), ylim=(0, 1), zlim=(0, 1), width=0.01):
+def biaxiality(q1, q2, q3, q4, q5):
+    """tr(Q^3)^2/tr(Q^2)^3, which is between 0 and 1/6"""
+    return 1 - 6 * trace_Q3(q1, q2, q3, q4, q5)**2 / (trace_Q2(q1, q2, q3, q4, q5)**3 + 1e-14)
+
+
+def mkVtkCube(X: np.ndarray, Y: np.ndarray, Z: np.ndarray):
+    """Build VTK PolyData object in the cube spanned by a mesh grid"""
+    assert X.shape == Y.shape == Z.shape and len(X.shape) == 3
+    cube = vtkUnstructuredGrid()
+    points = vtkPoints()
+
+    # Prepare points
+    N1, N2, N3 = X.shape
+    X = np.ascontiguousarray(X)
+    Y = np.ascontiguousarray(Y)
+    Z = np.ascontiguousarray(Z)
+    x = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).transpose()
+    # Prepare 3*(N+1)*N**2 faces in the form of indices
+
+    def ijk2ind(i, j, k):
+        """Translate 3-index to linear index in X,Y,Z"""
+        return (i * N2 + j) * N3 + k
+    voxels = [(ijk2ind(i, j, k), ijk2ind(i + 1, j, k),
+               ijk2ind(i + 1, j + 1, k), ijk2ind(i, j + 1, k),
+               ijk2ind(i, j, k + 1), ijk2ind(i + 1, j, k + 1),
+               ijk2ind(i + 1, j + 1, k + 1), ijk2ind(i, j + 1, k + 1))
+              for i in range(N1 - 1) for j in range(N2 - 1) for k in range(N3 - 1)]
+
+    # Build grid
+    for i, xi in enumerate(x):
+        points.InsertPoint(i, xi)
+    cube.SetPoints(points)
+
+    for v in voxels:
+        cubie = vtkHexahedron()
+        for i in range(8):
+            cubie.GetPointIds().SetId(i, v[i])
+        cube.InsertNextCell(cubie.GetCellType(),
+                            cubie.GetPointIds())
+    return cube
+
+
+def mkVtkCubeData(data, name):
+    assert data.shape[2] == data.shape[1] == data.shape[0]
+    scalars = vtkFloatArray()
+    for i, vi in enumerate(data.ravel()):
+        scalars.InsertTuple1(i, vi)
+    scalars.SetName(name)
+    return scalars
+
+
+def plotBiax(X: LCState_s, N_view=None):
+    if N_view is None:
+        N_view = N
+    xv = x.sine_trans(sz=N_view)
+    biax = np.pad(biaxiality(xv.q1, xv.q2, xv.q3, xv.q4, xv.q5),
+                  [(1, 1), (1, 1), (1, 1)], constant_values=0)
+    phi = np.pad(xv.phi, [(1, 1), (1, 1), (1, 1)], constant_values=0)
+
+    xx = np.arange(N_view + 2) / (N_view + 1)
+    cube = mkVtkCube(*np.meshgrid(xx, xx, xx, indexing="ij"))  # prepare grid
+    scalars1 = mkVtkCubeData(phi, "phi")
+    cube.GetPointData().SetScalars(scalars1)  # prepare phi data
+    scalars2 = mkVtkCubeData(biax, "biax")  # prepare biaxiality data
+    cube.GetPointData().AddArray(scalars2)
+
+    return cube
+
+
+def fccCloud(xlim=(0, 1), ylim=(0, 1), zlim=(0, 1), width=0.01):
     """Compute point cloud from face-centered cubic packing
     Layers are parallel to the yOz plane"""
     # radius of circumsphere
@@ -72,81 +116,36 @@ def points_fcc(xlim=(0, 1), ylim=(0, 1), zlim=(0, 1), width=0.01):
     return X[R], Y[R], Z[R]
 
 
-def plot_phi(X: LCState_s, figure=None, levels=5, sz=None):
-    if figure is None:
-        figure = mlab.gcf()
-    if sz is None:
-        sz = X.N
-    xxx = np.arange(1, sz + 1) / (sz + 1)
-    phi = X.phi_values(sz=sz)
-    xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
-    surf = mlab.contour3d(xx, yy, zz, phi, figure=figure, contours=levels,
-                          color=(.7, .7, .7), opacity=.5)
-    return surf
-
-
-def plot_biax(X: LCState_s, figure=None, N_view=None, phi_thres=0.5):
-    """Plot biaxiality order parameter as scalar field in space
-    `N_view`: number of grid points along one edge
-    `phi_thres`: threshold value of phi (above which grid points are visible)
-    `color_resolution`: length of the (discrete) color scale"""
-    if figure is None:
-        figure = mlab.gcf()
-    if N_view is None:
-        N_view = X.N
-    xxx = np.arange(1, N_view + 1) / (1 + N_view)
-    xx, yy, zz = np.meshgrid(xxx, xxx, xxx, indexing='ij')
-    X_v = X.sine_trans(sz=N_view)
-    biax = biaxiality(X_v.q1, X_v.q2, X_v.q3, X_v.q4, X_v.q5)
-    mask = (X_v.phi > phi_thres)
-    if not np.any(mask):
-        raise Warning("No φ above threshold")
-    xx = xx[mask]
-    yy = yy[mask]
-    zz = zz[mask]
-    # Construct TVTK point data set
-    X = np.transpose(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]))  # prepare coordinates
-    pts = tvtk.Points()
-    pts.from_array(X)
-    cel = tvtk.CellArray()
-    cel.from_array([[i] for i in range(len(X))])
-    poly = tvtk.PolyData(points=pts, polys=cel)
-    P = tvtk.DoubleArray(name='phi')
-    P.from_array(X_v.phi[mask].ravel())
-    poly.point_data.add_array(P)  # include φ in case of further thresholding
-    B = tvtk.DoubleArray(name='biax')  # label the data
-    B.from_array(biax[mask].ravel())
-    poly.point_data.add_array(B)
-    return poly
-
-
-def plot_director(X: LCState_s, figure=None,
-                  scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
-    """Visualization of solution by Hu (2016).
-    Contours of biaxiality order parameter
-    Q tensor represented by ellipsoids"""
-    if figure is None:
-        figure = mlab.gcf()
-    xx, yy, zz = points_fcc(width=width)  # FCC point cloud
+def plotDir(X, scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
+    xx, yy, zz = fccCloud(width=width)  # FCC point cloud
     phi = X.values_x(xx, yy, zz, phi_only=True)
-    # restrict to phi>threshold
     mask = (phi > phi_thres)
     xx = xx[mask]
     yy = yy[mask]
     zz = zz[mask]
     length = len(xx)
     q1, q2, q3, q4, q5, phi = X.values_x(xx, yy, zz)
-    biax = biaxiality(q1, q2, q3, q4, q5)
-    c = cm.viridis(Normalize()(biax))
-    # V=np.zeros([length,3]) # storage for eigenvectors
-    # unit sphere coordinates
+
+    # Information on spherical mesh
+    def ij2id(i, j):
+        nonlocal resolution
+        return i * resolution + j
+
+    # A list of facets on a triangulated sphere
+    facets = [(ij2id(i, j), ij2id(i + 1, j), ij2id(i + 1, (j + 1) % resolution))
+              for i in range(resolution) for j in range(resolution)] + \
+        [(ij2id(i, j), ij2id(i + 1, (j + 1) % resolution), ij2id(i, (j + 1) % resolution))
+         for i in range(1, resolution + 1) for j in range(resolution)]
+    # Latitude and longitude
     ph, th = np.meshgrid(np.linspace(-.5, .5, resolution + 1) * np.pi,
-                         np.linspace(0, 2, resolution + 1) * np.pi)
+                         np.arange(resolution) * 2 * np.pi / resolution, indexing="ij")
+    ph = ph.ravel()
+    th = th.ravel()
     sphere_x = np.cos(ph) * np.cos(th)
     sphere_y = np.cos(ph) * np.sin(th)
     sphere_z = np.sin(ph)
 
-    append_pd = tvtk.AppendPolyData()  # tvtk object that merges multiple datasets
+    poly = vtkAppendPolyData()
     for i in range(length):
         # Get Q tensor at point
         Q = np.array([[q1[i] - q3[i], q2[i], q4[i]],
@@ -158,63 +157,71 @@ def plot_director(X: LCState_s, figure=None,
         for k in range(3):
             S[:, k] *= lam[k]
         S *= scale_factor * width * 0.5
-        surf = mlab.mesh((S[0, 0] * sphere_x + S[0, 1] * sphere_y + S[0, 2] * sphere_z) + xx[i],
-                         (S[1, 0] * sphere_x + S[1, 1] * sphere_y + S[1, 2] * sphere_z) + yy[i],
-                         (S[2, 0] * sphere_x + S[2, 1] * sphere_y + S[2, 2] * sphere_z) + zz[i],
-                         color=tuple(c[i, 0:3]), scalars=None,
-                         figure=figure)
-        localpoly = tvtk.to_tvtk(surf.actor.actors[0].mapper.input)  # get polydata
-        scalar_array = np.ones(localpoly.number_of_cells) * biax[i]
-        localpoly.cell_data.reset()
-        localpoly.cell_data.scalars = scalar_array.ravel()
-        localpoly.cell_data.update()  # write scalar to cells
+
+        # Build local ellipsoidal mesh
+        x_loc = (S[0, 0] * sphere_x + S[0, 1] * sphere_y + S[0, 2] * sphere_z) + xx[i]
+        y_loc = (S[1, 0] * sphere_x + S[1, 1] * sphere_y + S[1, 2] * sphere_z) + yy[i]
+        z_loc = (S[2, 0] * sphere_x + S[2, 1] * sphere_y + S[2, 2] * sphere_z) + zz[i]
+        poly_loc = vtkPolyData()
+        pt_loc = vtkPoints()
+        cell_loc = vtkCellArray()
+        for i in range(len(x_loc)):
+            pt_loc.InsertPoint(i, (x_loc[i], y_loc[i], z_loc[i]))
+        for fct in facets:
+            vil = vtkIdList()
+            for j in range(3):
+                vil.InsertNextId(fct[j])
+            cell_loc.InsertNextCell(vil)
+        poly_loc.SetPoints(pt_loc)
+        # Append to global mesh
+        poly_loc.SetPolys(cell_loc)
         if i == 0:
-            append_pd.set_input_data(localpoly)  # first input data set
+            poly.SetInputData(poly_loc)
         else:
-            append_pd.add_input_data(localpoly)  # trailing input data sets
-        append_pd.update()  # always update
-    return append_pd.output
+            poly.AddInputData(poly_loc)
+        poly.Update()
+    return poly.GetOutput()
 
 
-def plot_main(fname, s, fig, out_dir, phi_thres=0.5,
-              out_suffix='', phi=True, dir=True, biax=True):
-    if out_suffix:
-        out_suffix = '_' + out_suffix
-    X = load_lc(fname)
-    # Plot
-    if phi:
-        plot_phi(X, figure=fig)
-        mlab.savefig(join(out_dir, "phi%s.wrl" % out_suffix), figure=fig)
-    mlab.clf(fig)
-    if dir:
-        dir_vtk = plot_director(X, figure=fig, scale_factor=0.5, phi_thres=phi_thres, width=0.1)
-        write_data(dir_vtk, join(out_dir, "dir%s.vtp" % out_suffix))
-    mlab.clf(fig)
-    if biax:
-        biax_vtk = plot_biax(X, figure=fig, N_view=s, phi_thres=phi_thres)
-        write_data(biax_vtk, join(out_dir, "biax%s.vtp" % out_suffix))
-
+parser = ArgumentParser(prog="nlc_plot",
+                        description="Plot 3D NLC state using VTK and absolutely no Mayavi")
+parser.add_argument("files", nargs='*', action="store", help="Input file(s)")
+parser.add_argument("-N", "--num_view", action="store", default=63,
+                    help="Grid size of final view")
+parser.add_argument("-o", "--output", action="store", default="out",
+                    help="Output folder name")
+parser.add_argument("--phi-thres", action="store", default=0.5, type=float,
+                    help="Threshold value of phi")
+parser.add_argument("--no-biax", action="store_true", default=False,
+                    help="Do not plot biaxiality")
+parser.add_argument("--no-dir", action="store_true", default=False,
+                    help="Do not plot directors")
 
 if __name__ == "__main__":
-    # # test FCC point cloud
-    # X, Y, Z = points_fcc(width=0.1)
-    # mlab.points3d(X, Y, Z, scale_factor=0.1)
-    # mlab.show()
     args = parser.parse_args()
 
     OUTD = join(os.path.abspath('.'), args.output)
-    if not os.path.exists(OUTD):
+    if not exists(OUTD):
         os.mkdir(OUTD)
 
     # Gather input files
-    fig = mlab.figure(1)
     FL = []
     for a in args.files:
         FL += glob(a)
     for fn in FL:
         if not fn.endswith('.npy'):
             raise ValueError("Invalid state file name")
-        plot_main(fn, int(args.num_view), fig, OUTD,
-                  phi_thres=args.phi_thres,
-                  out_suffix=os.path.basename(fn).removesuffix('.npy'),
-                  phi=not args.no_phi, dir=not args.no_dir, biax=not args.no_biax)
+        x = load_lc(fn)
+        # Plot biaxiality
+        if not args.no_biax:
+            cube = plotBiax(x, int(args.num_view))
+            writer = vtkXMLUnstructuredGridWriter()
+            writer.SetFileName(join(OUTD, "biax_%s.vtu" % basename(fn).removesuffix('.npy')))
+            writer.SetInputData(cube)
+            writer.Write()
+        if not args.no_dir:
+            poly = plotDir(x, scale_factor=0.5, phi_thres=args.phi_thres, width=0.1)
+            writer = vtkXMLPolyDataWriter()
+            writer.SetFileName(join(OUTD, "dir_%s.vtp" % basename(fn).removesuffix('.npy')))
+            writer.SetInputData(poly)
+            writer.Write()
