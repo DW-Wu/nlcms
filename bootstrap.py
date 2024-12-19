@@ -81,8 +81,7 @@ if args.name == "radial":
     # It seems that radial is a saddle point between ring and split-core
     # So we use Newton method
     # iteration takes ~12h
-    solver.X = load_lc("radial48-1209.npy", resize=47)  # test code. delete later
-    solver.solve(method="newton", maxiter=100, eta=0.8, tol=3e-8,
+    solver.solve(method="newton", metric="l2", maxiter=100, eta=0.8, tol=3e-8,
                  maxsubiter=100, gmres_restart=40, subtol=0.1, verbose=True)
     solver.snapshot("radial%d" % (N + 1))
     print("radial found", datetime.datetime.now())

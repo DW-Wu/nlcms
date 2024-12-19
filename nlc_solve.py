@@ -240,6 +240,7 @@ class LCSolve:
 
     @profiler
     def solve_newton(self, FF: LCFunc_s,
+                     metric="h1",
                      maxiter=2000,
                      eta=0.1,
                      tol=1e-8,
@@ -256,7 +257,10 @@ class LCSolve:
         gnvec = []
         dxvec = []
         for t in range(maxiter):
-            g = FF.grad(X, proj="h1")
+            if metric == "l2":
+                g = FF.grad(X, proj="l2")
+            else:
+                g = FF.grad(X, proj="h1")
             gnorm = norm(g.x)
             gnvec.append(gnorm)
             if verbose:
@@ -268,11 +272,20 @@ class LCSolve:
                 break
             bad_rate = (t > 3 and all([gnvec[-i] > .95 * gnvec[-i - 1]
                                        for i in (1, 2, 3)]))
-            H = FF.hess(X, proj="h1")
-            dx, _ = gmres(H, g.x, x0=g.x,
-                          rtol=subtol,
-                          restart=gmres_restart + 10 if bad_rate else gmres_restart,
-                          maxiter=maxsubiter * 2 if bad_rate else maxsubiter)
+            if metric == "l2":
+                H = FF.hess(X, proj="l2")
+                M = FF.hess_inv_approx(X)
+                dx, _ = gmres(H, g.x, x0=g.x, M=M,
+                              rtol=subtol,
+                              restart=gmres_restart + 10 if bad_rate else gmres_restart,
+                              maxiter=maxsubiter * 2 if bad_rate else maxsubiter)
+            else:
+                H = FF.hess(X, proj="h1")
+                dx, _ = gmres(H, g.x, x0=g.x,
+                              rtol=subtol,
+                              restart=gmres_restart + 10 if bad_rate else gmres_restart,
+                              maxiter=maxsubiter * 2 if bad_rate else maxsubiter)
+
             dxvec.append(norm(dx))
             if verbose:
                 print("GMRes relative error:", norm(H @ dx - g.x) / norm(g.x))
