@@ -201,25 +201,16 @@ class LCSolve:
                 matvec=lambda v: np.hstack([v[0:5 * N**3], v[5 * N**3:] / FF.aux.c_lap.ravel()]))
         else:
             precon = None
+        stab = [2, 2, 2, 2, 2, FF.sp**2]  # Stabilizing factor
         for t in (tqdm(range(maxiter), desc="GF", ncols=80)
                   if verbose else range(maxiter)):
-            G_nonlin = FF.grad(X, part=1, proj=metric)
+            G = FF.grad(X, proj=metric)
             Xp.x[:] = X.x
-            # D = FF.diffusion(Xp, proj=metric)
-            D = FF.hess(Xp, part="diffusion", proj=metric)
-
-            # An implicit step involves solving the anchoring diffusion operator
-            # We use GMRES
-            Y = (X.x - eta * G_nonlin.x).ravel()
-            IpD = LinearOperator(dtype=float, shape=(6 * N**3, 6 * N**3),
-                                 matvec=lambda v: v + eta * (D @ v))
-            # Solve implicit equation in phi using GMRES (very loose conditions)
-            x_new, _ = gmres(IpD, Y, Xp.x,
-                             rtol=subtol * eta,
-                             restart=20,
-                             M=precon,
-                             maxiter=maxsubiter)
-            X.x[:] = x_new
+            # We use the stabilizing approach to avoid non-constant diffusion inversion
+            # X^{n+1} = X^n - dt*g^n + Λ*Δ(X^{n+1}-X^n)
+            for i in range(6):
+                X.x4[i] = ((1 + eta * stab[i] * FF.aux.c_lap) * X.x4[i] - eta * G.x4[i]) \
+                    / (1 + eta * stab[i] * FF.aux.c_lap)
             FF.project(X.phi, FF.v0, metric=metric)
             self.fvec.append(FF.energy(X))
             if np.any(np.isnan(X.x)):
@@ -273,6 +264,7 @@ class LCSolve:
             bad_rate = (t > 3 and all([gnvec[-i] > .95 * gnvec[-i - 1]
                                        for i in (1, 2, 3)]))
             if metric == "l2":
+                # Solve L2 Hessian with Laplacian preconditioner
                 H = FF.hess(X, proj="l2")
                 M = FF.hess_inv_approx(X)
                 dx, _ = gmres(H, g.x, x0=g.x, M=M,
@@ -340,10 +332,9 @@ if __name__ == "__main__":
                      load_file=not args.restart, verbose=not args.silent)
     solver.save_config()
     g = FF.grad(solver.X, proj="h1")
-    print(norm(g.x))
     if norm(g.x) > 0.1:
         # Smoothen with gradient flow first
-        solver.solve(method='gf', maxiter=200, eta=1e-4, tol=1e-6,
+        solver.solve(method='gf', maxiter=400, eta=1e-3, tol=1e-6,
                      maxsubiter=50, subtol=0.05, verbose=not args.silent)
         plt.plot(solver.fvec)
         plt.title("Energy in gradient flow")
@@ -384,7 +375,7 @@ if __name__ == "__main__":
                         "-N=63", "-o", args.output])
     elif args.post == "eigen":
         H = FF.hess(X)
-        lam, V = lobpcg(H, np.eye(6 * N**3, 3),
+        lam, V = lobpcg(H, np.eye(6 * N**3, 1),
                         Y=np.asmatrix(np.hstack([np.zeros(5 * N**3), FF.aux.ios3.ravel()])).T,
                         maxiter=int(args.maxiter),
                         tol=1e-6, largest=False,
