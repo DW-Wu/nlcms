@@ -186,21 +186,12 @@ class LCSolve:
                  maxiter=2000,
                  eta=1e-3,
                  tol=1e-8,
-                 maxsubiter=50,
-                 subtol=0.1,
                  verbose=False):
         X = self.X
         N = X.N
         FF.get_aux(N)
         Xp = LCState_s(N)
         self.flag = 0
-        if metric == "h1":
-            # use inverse laplacian as preconditioner on phi
-            precon = LinearOperator(
-                dtype=float, shape=(6 * N**3, 6 * N**3),
-                matvec=lambda v: np.hstack([v[0:5 * N**3], v[5 * N**3:] / FF.aux.c_lap.ravel()]))
-        else:
-            precon = None
         stab = [2, 2, 2, 2, 2, FF.sp**2]  # Stabilizing factor
         for t in (tqdm(range(maxiter), desc="GF", ncols=80)
                   if verbose else range(maxiter)):
@@ -335,7 +326,7 @@ if __name__ == "__main__":
     if norm(g.x) > 0.1:
         # Smoothen with gradient flow first
         solver.solve(method='gf', maxiter=400, eta=1e-3, tol=1e-6,
-                     maxsubiter=50, subtol=0.05, verbose=not args.silent)
+                     verbose=not args.silent)
         plt.plot(solver.fvec)
         plt.title("Energy in gradient flow")
         plt.savefig(join(args.output, "energy.pdf"))
@@ -352,8 +343,7 @@ if __name__ == "__main__":
     plt.title("Energy in gradient descent")
     plt.savefig(join(args.output, "energy_gd.pdf"))
 
-    if not args.silent:
-        print("Energy = %.6f" % FF.energy(solver.X))
+    print("Energy = %.6f" % FF.energy(solver.X))
 
     # Export to matlab format
     if args.matlab:
@@ -384,4 +374,5 @@ if __name__ == "__main__":
         # save_lc("eig1.npy",LCState_s(N,V[:,0],copy=True))
         # save_lc("eig2.npy",LCState_s(N,V[:,1],copy=True))
 
-    print_profile()
+    if not args.silent:
+        print_profile()

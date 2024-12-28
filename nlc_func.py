@@ -223,8 +223,6 @@ class LCFunc_s:
     def project_vec(self, x: np.ndarray, N, v0, metric="h1"):
         """Project phi to v0, but with vector input.
         Returns new vector"""
-        if self.aux is None or self.aux.N != N:
-            self.aux = LCFunc_s.LCAux(N)
         xp = np.copy(x).reshape([6, N, N, N])
         xp[5] -= self.vol_con_normal(xp[5], v0, metric)
         return xp.ravel()
@@ -315,7 +313,6 @@ class LCFunc_s:
                    + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2)
         x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, xvx.phi, xvy.phi, xvz.phi)  # Q∇φ
         if part != 1:
-            pass
             # LdG elastic (now with mask, so evaluate with adjoints)
             for i in range(5):
                 g.x4[i, :] = (2 if i != 2 else 6) * self.we * h3 * np.pi * (
@@ -725,11 +722,11 @@ if __name__ == "__main__":
     FF.get_aux(N)
     FF.reset_params(show=True)
     np.random.seed(142)
-    # X = generate_x(N)
-    X = view_as_lc(np.random.randn(6 * N**3), N)
+    X = generate_x(N)
+    # X = view_as_lc(np.random.randn(6 * N**3), N)
 
     test_grad(FF, X)
-    # test_hess(FF, X)
+    test_hess(FF, X)
     # for i in range(5):
     #     X = generate_x(N)
     #     G = FF.grad(X)
