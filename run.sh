@@ -10,6 +10,6 @@
 module load conda
 
 # Ring to tactoid
-python3 nlc_cont.py ring.json tactoid.json -i ring48.npy -N=47 --num-steps=10 --refine-steps=3 --maxiter=6000 --eta=2e-4 --tol=1e-6 -sf -o rn2tc
+python3 nlc_cont.py cont0.json cont1.json -i score48.npy -N=47 --num-steps=10 --refine-steps=3 --maxiter=6000 --eta=2e-4 --tol=1e-6 -sf -o out/sc2tc
 # Tactoid to whatever
-python3 nlc_cont.py tactoid.json ring.json -i tactoid48.npy -N=47 --num-steps=10 --refine-steps=3 --maxiter=6000 --eta=2e-4 --tol=1e-6 -sf -o tc2w
+python3 nlc_cont.py cont1.json cont0.json -i tactoid48.npy -N=47 --num-steps=10 --refine-steps=3 --maxiter=6000 --eta=2e-4 --tol=1e-6 -sf -o out/tc2w
