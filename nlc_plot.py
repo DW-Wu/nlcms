@@ -1,8 +1,10 @@
 from argparse import ArgumentParser
 from glob import glob
+from matplotlib.pyplot import get_cmap
 import numpy as np
 import os
 from os.path import join, exists, basename
+import sys
 from vtk import *
 
 from nlc_func import *
@@ -25,11 +27,12 @@ def mkVtkCube(X: np.ndarray, Y: np.ndarray, Z: np.ndarray):
     Y = np.ascontiguousarray(Y)
     Z = np.ascontiguousarray(Z)
     x = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).transpose()
-    # Prepare 3*(N+1)*N**2 faces in the form of indices
 
     def ijk2ind(i, j, k):
         """Translate 3-index to linear index in X,Y,Z"""
+        nonlocal N2, N3
         return (i * N2 + j) * N3 + k
+
     voxels = [(ijk2ind(i, j, k), ijk2ind(i + 1, j, k),
                ijk2ind(i + 1, j + 1, k), ijk2ind(i, j + 1, k),
                ijk2ind(i, j, k + 1), ijk2ind(i + 1, j, k + 1),
@@ -59,6 +62,16 @@ def mkVtkCubeData(data, name):
     return scalars
 
 
+def writeVtkData(fname, data, type):
+    if type == "pd":
+        writer = vtkXMLPolyDataWriter()
+    elif type == "ug":
+        writer = vtkXMLUnstructuredGridWriter()
+    writer.SetFileName(fname)
+    writer.SetInputData(data)
+    writer.Write()
+
+
 def plotBiax(X: LCState_s, N_view=None):
     if N_view is None:
         N_view = N
@@ -69,12 +82,36 @@ def plotBiax(X: LCState_s, N_view=None):
 
     xx = np.arange(N_view + 2) / (N_view + 1)
     cube = mkVtkCube(*np.meshgrid(xx, xx, xx, indexing="ij"))  # prepare grid
-    scalars1 = mkVtkCubeData(phi, "phi")
-    cube.GetPointData().SetScalars(scalars1)  # prepare phi data
+    scalars1 = mkVtkCubeData(phi, "phi")  # prepare phi data
+    cube.GetPointData().SetScalars(scalars1)
     scalars2 = mkVtkCubeData(biax, "biax")  # prepare biaxiality data
     cube.GetPointData().AddArray(scalars2)
 
-    return cube
+    # Get contour surface
+    contours = vtkContourGrid()
+    contours.SetInputData(cube)
+    contours.SetValue(0, 0.5)  # 0.5 isosurface
+    contours.Update()
+    surf: vtkPolyData = contours.GetOutput()  # a polydata object
+    surf.GetPointData().RemoveArray(0)  # remove phi
+    surf.GetPointData().RemoveArray(0)  # remove biax
+
+    # Get interior biaxiality field
+    thres = vtkThreshold()
+    thres.SetInputData(cube)
+    thres.SetInputArrayToProcess(1,  # index of array
+                                 0,  # input port
+                                 0,  # input connection
+                                 1,  # field to extract (1 for CELL)
+                                 "phi")  # array name
+    thres.SetUpperThreshold(0.5)
+    thres.SetThresholdFunction(2)  # 2 for `above upper' criterion
+    thres.Update()
+    biax_in: vtkUnstructuredGrid = thres.GetOutput()  # grid after threshold
+    biax_in.GetPointData().RemoveArray(0)  # remove phi
+    biax_in.GetPointData().SetActiveScalars("biax")
+
+    return surf, biax_in
 
 
 def fccCloud(xlim=(0, 1), ylim=(0, 1), zlim=(0, 1), width=0.01):
@@ -183,10 +220,109 @@ def plotDir(X, scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
     return poly.GetOutput()
 
 
+VTK_COLORS = vtkNamedColors()
+
+
+def showDroplet(surf, biax, dir, clipNormal=(1, 0, 0)):
+    """Show droplet"""
+    global VTK_COLORS
+
+    # Clip plane
+    plane = vtkPlane()
+    plane.SetOrigin(.5, .5, .5)
+    plane.SetNormal(*clipNormal)
+
+    # clip, mapper & actor for interface
+    clip1 = vtkClipPolyData()
+    clip1.SetInputData(surf)
+    clip1.SetClipFunction(plane)
+    clip1.Update()
+    mapper1 = vtkPolyDataMapper()
+    mapper1.SetInputData(clip1.GetOutput())
+    mapper1.ScalarVisibilityOff()
+    actor1 = vtkActor()
+    actor1.SetMapper(mapper1)
+    actor1.GetProperty().SetRepresentationToSurface()
+    actor1.GetProperty().EdgeVisibilityOff()
+    actor1.GetProperty().LightingOff()
+    actor1.GetProperty().SetColor(VTK_COLORS.GetColor3d('green'))
+
+    # colormap
+    lut = vtkLookupTable()
+    lut.SetTableRange(0., 1.)
+    # Cool to warm
+    c2w = get_cmap("coolwarm")
+    lut.SetNumberOfColors(256)
+    for i in range(256):
+        lut.SetTableValue(i, *c2w(i / 255)[0:3])
+    lut.SetNanColor(1., 1., 0., 1.)  # Yellow for NAN
+
+    # clip, mapper & actor for biax field
+    clip2 = vtkClipDataSet()
+    clip2.SetInputData(biax)
+    clip2.SetClipFunction(plane)
+    clip2.Update()
+    mapper2 = vtkDataSetMapper()
+    mapper2.SetInputData(clip2.GetOutput())
+    mapper2.ScalarVisibilityOn()  # color map requires scalar visibility
+    mapper2.SetScalarModeToUsePointData()
+    mapper2.SetScalarRange(0, 1)  # scalar range for color map
+    mapper2.SetColorModeToMapScalars()
+    mapper2.SetLookupTable(lut)  # Use coolwarm lookup table
+    actor2 = vtkActor()
+    actor2.SetMapper(mapper2)
+    actor2.GetProperty().SetRepresentationToSurface()
+    actor2.GetProperty().EdgeVisibilityOff()
+    actor2.GetProperty().LightingOff()
+
+    # clip, mapper & actor for director field
+    clip3 = vtkClipPolyData()
+    clip3.SetInputData(dir)
+    clip3.SetClipFunction(plane)
+    clip3.SetValue(-0.06)
+    clip3.Update()
+    mapper3 = vtkPolyDataMapper()
+    mapper3.SetInputData(clip3.GetOutput())
+    mapper3.ScalarVisibilityOff()
+    actor3 = vtkActor()
+    actor3.SetMapper(mapper3)
+    actor3.GetProperty().SetRepresentationToSurface()
+    actor3.GetProperty().EdgeVisibilityOff()
+    # actor3.GetProperty().LightingOff()
+    actor3.GetProperty().SetDiffuse(0.7)
+    actor3.GetProperty().SetSpecular(0.4)
+    actor3.GetProperty().SetSpecularPower(20)
+    actor3.GetProperty().SetColor(VTK_COLORS.GetColor3d('white'))
+
+    # A renderer and render window
+    renderer = vtkRenderer()
+    renderer.SetBackground(VTK_COLORS.GetColor3d("transparent"))
+
+    # add the actors
+    renderer.AddActor(actor1)
+    renderer.AddActor(actor2)
+    renderer.AddActor(actor3)
+    renderer.SetLightFollowCamera(1)
+
+    # set camera
+    cam = renderer.GetActiveCamera()
+    cam.SetPosition(-1., 0.5, 0.5)
+    cam.SetFocalPoint(.5, .5, .5)  # aim at center of droplet
+    cam.SetViewUp(0., 0., 1.)  # correct orientation
+
+    # render window
+    renwin = vtkRenderWindow()
+    renwin.AddRenderer(renderer)
+    renwin.SetWindowName('NLC Droplet')
+    renwin.SetSize(1000, 1000)
+
+    return renwin
+
+
 parser = ArgumentParser(prog="nlc_plot",
                         description="Plot 3D NLC state using VTK and absolutely no Mayavi")
 parser.add_argument("files", nargs='*', action="store", help="Input file(s)")
-parser.add_argument("-N", "--num_view", action="store", default=63,
+parser.add_argument("-N", "--num_view", action="store", default=95,
                     help="Grid size of final view")
 parser.add_argument("-o", "--output", action="store", default="out",
                     help="Output folder name")
@@ -196,6 +332,9 @@ parser.add_argument("--no-biax", action="store_true", default=False,
                     help="Do not plot biaxiality")
 parser.add_argument("--no-dir", action="store_true", default=False,
                     help="Do not plot directors")
+parser.add_argument("--show", '-S', action="store_true", default=False,
+                    help="Show with internal subroutine")
+
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -208,20 +347,43 @@ if __name__ == "__main__":
     FL = []
     for a in args.files:
         FL += glob(a)
+    if len(FL) > 1:
+        args.show = False  # Do not show multiple files
     for fn in FL:
         if not fn.endswith('.npy'):
             raise ValueError("Invalid state file name")
         x = load_lc(fn)
         # Plot biaxiality
         if not args.no_biax:
-            cube = plotBiax(x, int(args.num_view))
-            writer = vtkXMLUnstructuredGridWriter()
-            writer.SetFileName(join(OUTD, "biax_%s.vtu" % basename(fn).removesuffix('.npy')))
-            writer.SetInputData(cube)
-            writer.Write()
+            surf, biax = plotBiax(x, int(args.num_view))  # phi=0.5 isosurface and interior biaxiality
+            writeVtkData(join(OUTD, "interf_%s.vtp" % basename(fn).removesuffix('.npy')),
+                         surf, type="pd")
+            writeVtkData(join(OUTD, "biax_%s.vtu" % basename(fn).removesuffix('.npy')),
+                         biax, type="ug")
         if not args.no_dir:
             poly = plotDir(x, scale_factor=0.5, phi_thres=args.phi_thres, width=0.1)
-            writer = vtkXMLPolyDataWriter()
-            writer.SetFileName(join(OUTD, "dir_%s.vtp" % basename(fn).removesuffix('.npy')))
-            writer.SetInputData(poly)
+            writeVtkData(join(OUTD, "dir_%s.vtp" % basename(fn).removesuffix('.npy')),
+                         poly, type="pd")
+        if not args.no_biax and not args.no_dir:
+            win = showDroplet(surf, biax, poly, clipNormal=(1, 0, 0))
+            if args.show:
+                # An interactor
+                interactor = vtkRenderWindowInteractor()
+                interactor.SetRenderWindow(win)
+                # Start
+                interactor.Initialize()
+                win.Render()
+                interactor.Start()
+            # Save scene to image
+            win.Render()
+            win.SetAlphaBitPlanes(1)  # enable alpha channel (transparency)
+            img = vtkWindowToImageFilter()
+            img.SetInput(win)
+            # img.SetScale(1, 1)
+            img.SetInputBufferTypeToRGBA()
+            img.ReadFrontBufferOff()
+            img.Update()
+            writer = vtkPNGWriter()
+            writer.SetFileName(join(OUTD, "scene_%s.png" % basename(fn).removesuffix('.npy')))
+            writer.SetInputConnection(img.GetOutputPort())
             writer.Write()

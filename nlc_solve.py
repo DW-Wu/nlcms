@@ -224,8 +224,9 @@ class LCSolve:
     def solve_newton(self, FF: LCFunc_s,
                      metric="h1",
                      maxiter=2000,
-                     eta=0.1,
                      tol=1e-8,
+                     eta=0.1,
+                     damp_threshold=0.5,
                      maxsubiter=50,
                      gmres_restart=20,
                      subtol=0.1,
@@ -272,7 +273,7 @@ class LCSolve:
             dxvec.append(norm(dx))
             if verbose:
                 print("GMRes relative error:", norm(H @ dx - g.x) / norm(g.x))
-            if eta < 1. and gnorm > .5:
+            if eta < 1. and gnorm > damp_threshold:
                 # damp when gradient is large
                 X.x -= eta * dx
             else:

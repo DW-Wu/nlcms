@@ -86,6 +86,29 @@ if args.name == "radial":
     solver.snapshot("radial%d" % (N + 1))
     print("radial found", datetime.datetime.now())
 
+if args.name == "radial64":
+    """Radial state with a finer grid size"""
+    c = LCConfig(A=420, lam=2e-7, v0=0.1,
+                 eps=0.005, omega=20, wp=1, wv=0.5)
+    F = LCFunc_s(**c)
+    N = 63
+    xx = np.arange(1, N + 1) / (N + 1)
+    xx, yy, zz = np.meshgrid(xx, xx, xx, indexing='ij')
+    args = parser.parse_args()
+    r = np.sqrt((xx - .5)**2 + (yy - .5)**2 + (zz - .5)**2)
+    phiv = (np.tanh((0.287941 - r) / 0.01) + 1)
+    X0 = LCState_s(N)
+    X0.phi[:] = 4. * fft.idstn(phiv, type=1)
+    print("search for radial64", datetime.datetime.now())
+    solver = LCSolve(outdir='.', conf=c, N=N, x0=X0, load_file=False,
+                     verbose=not args.silent)
+    solver.solve(method='gf', maxiter=400, eta=1e-3, tol=1e-6,
+                 verbose=not args.silent)
+    solver.solve(method='gd', metric="l2", maxiter=9000, eta=1e-3, tol=1e-8,
+                 bb=True, verbose=not args.silent)  # H1 grad descent
+    solver.snapshot("radial64.npy")
+    print("radial64 found", datetime.datetime.now())
+
 if args.name == "tactoid":
     # Testified bootstrap of tactoid (volume=0.1)
     r = np.sqrt((xx - .5)**2 + (yy - .5)**2 + 0.9 * (zz - .5)**2)

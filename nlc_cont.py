@@ -51,11 +51,11 @@ def _interp_config(c0: LCConfig, c1: LCConfig, nsteps):
 
 class ContTest(LCSolve):
     def __init__(self, c0: LCConfig, c1: LCConfig, nsteps: int,
-            N: int,
-            x0=None,
-            outdir="./out",
-            force=True,
-            verbose=False):
+                 N: int,
+                 x0=None,
+                 outdir="./out",
+                 force=True,
+                 verbose=False):
         if not force and exists(outdir):
             # Try to read existing config and state
             if verbose:
@@ -176,12 +176,12 @@ class ContTest(LCSolve):
 
     def load_state(self, i):
         return load_lc(self._get_fname(i) + ".npy")
-    
+
     def snapshot(self, fname="snapshot.json"):
         """Write runtime information into file"""
-        D={"length":self.c_arr.shape[0], "iternum":self.iternum}
-        with open(join(self.outdir,fname),mode='w') as f:
-            json.dump(D,f)
+        D = {"length": self.c_arr.shape[0], "iternum": list(self.iternum)}
+        with open(join(self.outdir, fname), mode='w') as f:
+            json.dump(D, f)
 
 
 if __name__ == "__main__":
