@@ -12,8 +12,10 @@ parser.add_argument('-i', '--init', action="store", default=None,
                     help="Initial value in .npy file (overrides -r option)")
 parser.add_argument('-s', '--silent', action="store_true", default=False,
                     help="Silent run (no printed messages)")
-parser.add_argument('-N', '--num-sines', action="store", default=31, type=int,
+parser.add_argument('-N', '--num-sines', action="store", default=63, type=int,
                     help="Number of sine functions along each axis")
+parser.add_argument('--algorithm', action="store", default="gd", choices=["gd", "newton"],
+                    help="Solution algorithm (GD with BB | Newton)")
 parser.add_argument('--maxiter', action='store', default=2000, type=int,
                     help="Maximum iteration number")
 parser.add_argument('--eta', action='store', default=1e-6, type=float,
@@ -253,6 +255,9 @@ class LCSolve:
             if gnorm < tol:
                 self.flag = 1
                 break
+            elif np.isnan(gnorm):
+                self.flag = -1
+                break
             bad_rate = (t > 3 and all([gnvec[-i] > .95 * gnvec[-i - 1]
                                        for i in (1, 2, 3)]))
             if metric == "l2":
@@ -289,6 +294,7 @@ class LCSolve:
                 print("Iteration successful @ itno.", t, ", |g| =", gnorm)
             elif self.flag == -1:
                 print("NAN @ itno.", t)
+        return t
 
 
 if __name__ == "__main__":
@@ -296,10 +302,10 @@ if __name__ == "__main__":
         os.mkdir(args.output)
 
     # a=3
-    N = int(args.num_sines)  # default 31
+    N = int(args.num_sines)  # default 63
     np.random.seed(20240909)
-    # Default config for ring state
-    c0 = LCConfig(A=-1500, lam=2e-7, v0=0.1,
+    # Default config for radial state
+    c0 = LCConfig(A=420, lam=5, v0=0.1,
                   eps=0.005, omega=20, wp=1, wv=0.5)
     if args.config is not None:
         c0.update(load_lc_config(args.config))
@@ -332,12 +338,20 @@ if __name__ == "__main__":
         plt.title("Energy in gradient flow")
         plt.savefig(join(args.output, "energy.pdf"))
 
-    solver.solve(method='gd', metric="l2",
-                 maxiter=int(args.maxiter),  # default 2000
-                 eta=float(args.eta),  # default 1e-6
-                 tol=float(args.tol) * np.sqrt(6 * N**3),  # default 1e-8
-                 verbose=not args.silent,  # default True
-                 bb=True)
+    if args.algorithm == "gd":
+        solver.solve(method='gd', metric="l2",
+                     maxiter=int(args.maxiter),  # default 2000
+                     eta=float(args.eta),  # default 1e-6
+                     tol=float(args.tol),  # default 1e-8
+                     verbose=not args.silent,  # default True
+                     bb=True)
+    else:
+        solver.solve(method='newton', metric="l2",
+                     maxiter=int(args.maxiter),  # default 2000
+                     eta=float(args.eta),  # default 1e-6
+                     tol=float(args.tol),  # default 1e-8
+                     verbose=not args.silent,  # default True
+                     maxsubiter=100, gmres_restart=40, subtol=0.1, damp_threshold=0.3)
     solver.snapshot("solution")
     plt.clf()
     plt.plot(solver.fvec)
@@ -363,7 +377,7 @@ if __name__ == "__main__":
     if args.post == "plot":
         # Leave plotting to the other script
         subprocess.run([PY_EXE, "nlc_plot.py", join(args.output, "solution.npy"),
-                        "-N=63", "-o", args.output])
+                        "-N=63", "--img-only", "-o", args.output])
     elif args.post == "eigen":
         H = FF.hess(X)
         lam, V = lobpcg(H, np.eye(6 * N**3, 1),

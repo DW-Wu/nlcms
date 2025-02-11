@@ -30,6 +30,8 @@ parser.add_argument('--refine-steps', action='store', default=3, type=int,
                     help="Steps of auto refinement")
 parser.add_argument('--num-steps', action='store', default=20, type=int,
                     help="Initial number of steps between endpoint configs")
+parser.add_argument('--algorithm', action="store", default="gd",
+                    choices=["gd", "newton"], help="Solution algorithm")
 
 
 def _arr_to_conf(x):
@@ -56,6 +58,11 @@ class ContTest(LCSolve):
                  outdir="./out",
                  force=True,
                  verbose=False):
+        self.sw = 0  # string width
+        self.Evec = []  # Energy values in steps
+        self.iternum = []  # Numbers of iterations
+        self.index = -1  # Current index (-1 for initialization)
+
         if not force and exists(outdir):
             # Try to read existing config and state
             if verbose:
@@ -63,22 +70,24 @@ class ContTest(LCSolve):
             x0 = load_lc(join(outdir, "init.npy"), resize=N)
             self.c_arr = np.load(join(outdir, "conf.npy"))
             c0 = _arr_to_conf(self.c_arr[0])
+            if exists(join(outdir, "snapshot.json")):
+                with open(join(outdir, "snapshot.json")) as snap:
+                    D = json.loads(snap.read())
+                    self.iternum = D["iternum"]
+                    self.index = D["index"]
+                    print(self.iternum)
         else:
             self.c_arr = _interp_config(c0, c1, nsteps)
         # Call initialization method of superclass
         # Makes directory if not exist
         # Initialize state X
-        super().__init__(outdir, c0, N, x0, load_file=False, verbose=verbose)
+        super().__init__(outdir, c0, N, x0, load_file=False, verbose=False)
         if verbose:
             print("Starting config:", self.c_arr[0])
             print("End config:", self.c_arr[-1])
             print("Number of steps:", self.c_arr.shape[0])
             print("Output path:", os.path.abspath(self.outdir))
 
-        # Rewrite files
-        self.sw = 0
-        self.Evec = []  # Energy values in steps
-        self.iternum = []  # Numbers of iteration (large values indicate borderline case)
         self._set_clist()  # Save and export config files
         save_lc(join(self.outdir, "init.npy"), self.X)  # initial (from LCSolve.__init__)
 
@@ -145,6 +154,7 @@ class ContTest(LCSolve):
         while ind:
             # Start interpolation from the back
             self._refine_steps(*ind.pop())
+        self.index = -1  # restart iteration
 
     def _get_fname(self, i):
         """Get output file name (index formatted into strings of uniform length)
@@ -155,7 +165,12 @@ class ContTest(LCSolve):
         if disp_key is not None:
             # Display the value of given parameter during continuation
             assert disp_key in LCConfig.KEYS, "Invalid parameter name"
-        for i in range(self.c_arr.shape[0]):
+        if self.index == -1:
+            start = 0
+        else:
+            start = self.index
+        for i in range(start, self.c_arr.shape[0]):
+            self.index = i  # record current state
             self.conf = _arr_to_conf(self.c_arr[i])
             save_lc_config(self._get_fname(i) + ".json", self.conf)
             # Load solution if the iteration has been done before
@@ -179,9 +194,13 @@ class ContTest(LCSolve):
 
     def snapshot(self, fname="snapshot.json"):
         """Write runtime information into file"""
-        D = {"length": self.c_arr.shape[0], "iternum": list(self.iternum)}
+        D = {"length": self.c_arr.shape[0],
+             "iternum": [int(x) for x in self.iternum],
+             "index": self.index}
         with open(join(self.outdir, fname), mode='w') as f:
-            json.dump(D, f)
+            f.writelines(json.dumps(D, separators=(',', ': '), indent=2))
+        # write current state
+        save_lc(join(self.outdir, "init.npy"), self.X)
 
 
 if __name__ == "__main__":
@@ -198,18 +217,16 @@ if __name__ == "__main__":
                     outdir=args.output,
                     force=args.force_overwrite,
                     verbose=not args.silent)
-    test.main(disp_key="lam", method="gd",
-              maxiter=args.maxiter,  # default 2000
-              eta=args.eta,  # default 1e-4
-              tol=args.tol * np.sqrt(6 * N**3),  # default 1e-6
-              verbose=not args.silent,
-              bb=True)
+    if args.algorithm == "gd":
+        kw = dict(method="gd", metric="l2",
+                  maxiter=args.maxiter, eta=args.eta, tol=args.tol, bb=True,
+                  verbose=not args.silent)
+    elif args.algorithm == "newton":
+        kw = dict(method="newton", metric="l2",
+                  maxiter=args.maxiter, eta=args.eta, damp_threshold=0.3, tol=args.tol,
+                  maxsubiter=100, gmres_restart=40, subtol=0.1, verbose=not args.silent)
+    test.main(disp_key="lam", **kw)
     for _ in range(args.refine_steps):
         # 3 rounds of adaptive refinement
         test.auto_refine()
-        test.main(disp_key="lam", method="gd",
-                  maxiter=args.maxiter,  # default 2000
-                  eta=args.eta,  # default 1e-4
-                  tol=args.tol * np.sqrt(6 * N**3),  # default 1e-6
-                  verbose=not args.silent,
-                  bb=True)
+        test.main(disp_key="lam", **kw)

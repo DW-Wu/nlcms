@@ -15,41 +15,16 @@ def biaxiality(q1, q2, q3, q4, q5):
     return 1 - 6 * trace_Q3(q1, q2, q3, q4, q5)**2 / (trace_Q2(q1, q2, q3, q4, q5)**3 + 1e-14)
 
 
-def mkVtkCube(X: np.ndarray, Y: np.ndarray, Z: np.ndarray):
-    """Build VTK PolyData object in the cube spanned by a mesh grid"""
-    assert X.shape == Y.shape == Z.shape and len(X.shape) == 3
-    cube = vtkUnstructuredGrid()
+def mkVtkStructCube(N):
+    """Build structured cube on (0,1)^3, dividing each edge into N segments"""
+    cube = vtkStructuredGrid()
     points = vtkPoints()
-
-    # Prepare points
-    N1, N2, N3 = X.shape
-    X = np.ascontiguousarray(X)
-    Y = np.ascontiguousarray(Y)
-    Z = np.ascontiguousarray(Z)
-    x = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).transpose()
-
-    def ijk2ind(i, j, k):
-        """Translate 3-index to linear index in X,Y,Z"""
-        nonlocal N2, N3
-        return (i * N2 + j) * N3 + k
-
-    voxels = [(ijk2ind(i, j, k), ijk2ind(i + 1, j, k),
-               ijk2ind(i + 1, j + 1, k), ijk2ind(i, j + 1, k),
-               ijk2ind(i, j, k + 1), ijk2ind(i + 1, j, k + 1),
-               ijk2ind(i + 1, j + 1, k + 1), ijk2ind(i, j + 1, k + 1))
-              for i in range(N1 - 1) for j in range(N2 - 1) for k in range(N3 - 1)]
-
-    # Build grid
-    for i, xi in enumerate(x):
-        points.InsertPoint(i, xi)
+    xx = np.linspace(0, 1, N + 1)
+    X, Y, Z = np.meshgrid(xx, xx, xx, indexing="ij")
+    for x, y, z in zip(X.ravel(), Y.ravel(), Z.ravel()):
+        points.InsertNextPoint(x, y, z)
+    cube.SetDimensions(N + 1, N + 1, N + 1)
     cube.SetPoints(points)
-
-    for v in voxels:
-        cubie = vtkHexahedron()
-        for i in range(8):
-            cubie.GetPointIds().SetId(i, v[i])
-        cube.InsertNextCell(cubie.GetCellType(),
-                            cubie.GetPointIds())
     return cube
 
 
@@ -67,30 +42,36 @@ def writeVtkData(fname, data, type):
         writer = vtkXMLPolyDataWriter()
     elif type == "ug":
         writer = vtkXMLUnstructuredGridWriter()
+    elif type == "sg":
+        writer = vtkXMLStructuredGridWriter()
     writer.SetFileName(fname)
     writer.SetInputData(data)
+    info = vtkInformation()
+    writer.SetInformation(info)
     writer.Write()
 
 
 def plotBiax(X: LCState_s, N_view=None):
     if N_view is None:
-        N_view = N
+        N_view = X.N
     xv = x.sine_trans(sz=N_view)
     biax = np.pad(biaxiality(xv.q1, xv.q2, xv.q3, xv.q4, xv.q5),
                   [(1, 1), (1, 1), (1, 1)], constant_values=0)
     phi = np.pad(xv.phi, [(1, 1), (1, 1), (1, 1)], constant_values=0)
 
-    xx = np.arange(N_view + 2) / (N_view + 1)
-    cube = mkVtkCube(*np.meshgrid(xx, xx, xx, indexing="ij"))  # prepare grid
+    # Define phi and biax on structured grid
+    cube1 = mkVtkStructCube(N_view + 1)
     scalars1 = mkVtkCubeData(phi, "phi")  # prepare phi data
-    cube.GetPointData().SetScalars(scalars1)
+    cube1.GetPointData().SetScalars(scalars1)
     scalars2 = mkVtkCubeData(biax, "biax")  # prepare biaxiality data
-    cube.GetPointData().AddArray(scalars2)
+    cube1.GetPointData().AddArray(scalars2)
 
     # Get contour surface
-    contours = vtkContourGrid()
-    contours.SetInputData(cube)
+    # contours = vtkContourGrid()  # use this on UG
+    contours = vtkContourFilter()  # use this on SG
+    contours.SetInputData(cube1)
     contours.SetValue(0, 0.5)  # 0.5 isosurface
+    contours.ComputeNormalsOff()
     contours.Update()
     surf: vtkPolyData = contours.GetOutput()  # a polydata object
     surf.GetPointData().RemoveArray(0)  # remove phi
@@ -98,7 +79,7 @@ def plotBiax(X: LCState_s, N_view=None):
 
     # Get interior biaxiality field
     thres = vtkThreshold()
-    thres.SetInputData(cube)
+    thres.SetInputData(cube1)
     thres.SetInputArrayToProcess(1,  # index of array
                                  0,  # input port
                                  0,  # input connection
@@ -169,10 +150,13 @@ def plotDir(X, scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
         return i * resolution + j
 
     # A list of facets on a triangulated sphere
-    facets = [(ij2id(i, j), ij2id(i + 1, j), ij2id(i + 1, (j + 1) % resolution))
-              for i in range(resolution) for j in range(resolution)] + \
-        [(ij2id(i, j), ij2id(i + 1, (j + 1) % resolution), ij2id(i, (j + 1) % resolution))
-         for i in range(1, resolution + 1) for j in range(resolution)]
+    facets = np.array([(ij2id(i, j), ij2id(i + 1, j),
+                        ij2id((i + 1), (j + 1) % resolution))
+                       for i in range(resolution) for j in range(resolution)] +
+                      [(ij2id(i-1, j), ij2id(i, (j + 1) % resolution),
+                        ij2id(i-1, (j + 1) % resolution))
+                       for i in range(1, resolution + 1) for j in range(resolution)],
+                      dtype=int)
     # Latitude and longitude
     ph, th = np.meshgrid(np.linspace(-.5, .5, resolution + 1) * np.pi,
                          np.arange(resolution) * 2 * np.pi / resolution, indexing="ij")
@@ -182,7 +166,12 @@ def plotDir(X, scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
     sphere_y = np.cos(ph) * np.sin(th)
     sphere_z = np.sin(ph)
 
-    poly = vtkAppendPolyData()
+    # Prepare point and cell arrays
+    n_pt_loc = len(ph)
+    n_cell_loc = len(facets)
+    array_pts = np.zeros([n_pt_loc * length, 3], dtype=float)
+    array_cells = np.zeros([n_cell_loc * length, 3], dtype=int)
+
     for i in range(length):
         # Get Q tensor at point
         Q = np.array([[q1[i] - q3[i], q2[i], q4[i]],
@@ -196,28 +185,30 @@ def plotDir(X, scale_factor=1., phi_thres=0.5, width=0.1, resolution=8):
         S *= scale_factor * width * 0.5
 
         # Build local ellipsoidal mesh
+        # Transform the standard sphere with S
         x_loc = (S[0, 0] * sphere_x + S[0, 1] * sphere_y + S[0, 2] * sphere_z) + xx[i]
         y_loc = (S[1, 0] * sphere_x + S[1, 1] * sphere_y + S[1, 2] * sphere_z) + yy[i]
         z_loc = (S[2, 0] * sphere_x + S[2, 1] * sphere_y + S[2, 2] * sphere_z) + zz[i]
-        poly_loc = vtkPolyData()
-        pt_loc = vtkPoints()
-        cell_loc = vtkCellArray()
-        for i in range(len(x_loc)):
-            pt_loc.InsertPoint(i, (x_loc[i], y_loc[i], z_loc[i]))
-        for fct in facets:
-            vil = vtkIdList()
-            for j in range(3):
-                vil.InsertNextId(fct[j])
-            cell_loc.InsertNextCell(vil)
-        poly_loc.SetPoints(pt_loc)
-        # Append to global mesh
-        poly_loc.SetPolys(cell_loc)
-        if i == 0:
-            poly.SetInputData(poly_loc)
-        else:
-            poly.AddInputData(poly_loc)
-        poly.Update()
-    return poly.GetOutput()
+        # Build local points and cells (shift point indices)
+        array_pts[i * n_pt_loc:(i + 1) * n_pt_loc, :] = np.transpose([x_loc, y_loc, z_loc])
+        array_cells[i * n_cell_loc:(i + 1) * n_cell_loc, :] = facets + i * n_pt_loc
+
+    # Build VTK poly grid
+    poly = vtkPolyData()
+    pts = vtkPoints()
+    cells = vtkCellArray()
+    for i in range(len(array_pts)):
+        pts.InsertNextPoint(*array_pts[i, :])
+    for i in range(len(array_cells)):
+        vil = vtkIdList()
+        vil.Reset()
+        for j in range(3):
+            vil.InsertNextId(array_cells[i, j])
+        cells.InsertNextCell(vil)
+    poly.SetPoints(pts)
+    poly.SetPolys(cells)
+
+    return poly
 
 
 VTK_COLORS = vtkNamedColors()
@@ -244,7 +235,10 @@ def showDroplet(surf, biax, dir, clipNormal=(1, 0, 0)):
     actor1.SetMapper(mapper1)
     actor1.GetProperty().SetRepresentationToSurface()
     actor1.GetProperty().EdgeVisibilityOff()
-    actor1.GetProperty().LightingOff()
+    # actor1.GetProperty().LightingOff()
+    actor1.GetProperty().SetDiffuse(0.9)
+    actor1.GetProperty().SetSpecular(0.5)
+    actor1.GetProperty().SetSpecularPower(80)
     actor1.GetProperty().SetColor(VTK_COLORS.GetColor3d('green'))
 
     # colormap
@@ -279,7 +273,7 @@ def showDroplet(surf, biax, dir, clipNormal=(1, 0, 0)):
     clip3 = vtkClipPolyData()
     clip3.SetInputData(dir)
     clip3.SetClipFunction(plane)
-    clip3.SetValue(-0.06)
+    clip3.SetValue(-0.06)  # show one layer of director above clip
     clip3.Update()
     mapper3 = vtkPolyDataMapper()
     mapper3.SetInputData(clip3.GetOutput())
@@ -306,7 +300,7 @@ def showDroplet(surf, biax, dir, clipNormal=(1, 0, 0)):
 
     # set camera
     cam = renderer.GetActiveCamera()
-    cam.SetPosition(-1., 0.5, 0.5)
+    cam.SetPosition(-1, 0.8, 1.5)
     cam.SetFocalPoint(.5, .5, .5)  # aim at center of droplet
     cam.SetViewUp(0., 0., 1.)  # correct orientation
 
@@ -328,12 +322,10 @@ parser.add_argument("-o", "--output", action="store", default="out",
                     help="Output folder name")
 parser.add_argument("--phi-thres", action="store", default=0.5, type=float,
                     help="Threshold value of phi")
-parser.add_argument("--no-biax", action="store_true", default=False,
-                    help="Do not plot biaxiality")
-parser.add_argument("--no-dir", action="store_true", default=False,
-                    help="Do not plot directors")
 parser.add_argument("--show", '-S', action="store_true", default=False,
                     help="Show with internal subroutine")
+parser.add_argument("--img-only", action="store_true", default=False,
+                    help="Only export the image (without VTK objects)")
 
 
 if __name__ == "__main__":
@@ -354,36 +346,34 @@ if __name__ == "__main__":
             raise ValueError("Invalid state file name")
         x = load_lc(fn)
         # Plot biaxiality
-        if not args.no_biax:
-            surf, biax = plotBiax(x, int(args.num_view))  # phi=0.5 isosurface and interior biaxiality
+        surf, biax = plotBiax(x, int(args.num_view))  # phi=0.5 isosurface and interior biaxiality
+        poly = plotDir(x, scale_factor=0.5, phi_thres=args.phi_thres, width=0.1)
+        if not args.img_only:
             writeVtkData(join(OUTD, "interf_%s.vtp" % basename(fn).removesuffix('.npy')),
                          surf, type="pd")
             writeVtkData(join(OUTD, "biax_%s.vtu" % basename(fn).removesuffix('.npy')),
                          biax, type="ug")
-        if not args.no_dir:
-            poly = plotDir(x, scale_factor=0.5, phi_thres=args.phi_thres, width=0.1)
             writeVtkData(join(OUTD, "dir_%s.vtp" % basename(fn).removesuffix('.npy')),
                          poly, type="pd")
-        if not args.no_biax and not args.no_dir:
-            win = showDroplet(surf, biax, poly, clipNormal=(1, 0, 0))
-            if args.show:
-                # An interactor
-                interactor = vtkRenderWindowInteractor()
-                interactor.SetRenderWindow(win)
-                # Start
-                interactor.Initialize()
-                win.Render()
-                interactor.Start()
-            # Save scene to image
+        # Export image
+        win = showDroplet(surf, biax, poly, clipNormal=(1, 0, 0))
+        if args.show:
+            # An interactor
+            interactor = vtkRenderWindowInteractor()
+            interactor.SetRenderWindow(win)
+            # Start
+            interactor.Initialize()
             win.Render()
-            win.SetAlphaBitPlanes(1)  # enable alpha channel (transparency)
-            img = vtkWindowToImageFilter()
-            img.SetInput(win)
-            # img.SetScale(1, 1)
-            img.SetInputBufferTypeToRGBA()
-            img.ReadFrontBufferOff()
-            img.Update()
-            writer = vtkPNGWriter()
-            writer.SetFileName(join(OUTD, "scene_%s.png" % basename(fn).removesuffix('.npy')))
-            writer.SetInputConnection(img.GetOutputPort())
-            writer.Write()
+            interactor.Start()
+        # Save scene to image
+        win.SetAlphaBitPlanes(1)  # enable alpha channel (transparency)
+        img = vtkWindowToImageFilter()
+        img.SetInput(win)
+        # img.SetScale(1, 1)
+        img.SetInputBufferTypeToRGBA()
+        img.ReadFrontBufferOff()
+        img.Update()
+        writer = vtkPNGWriter()
+        writer.SetFileName(join(OUTD, "scene_%s.png" % basename(fn).removesuffix('.npy')))
+        writer.SetInputConnection(img.GetOutputPort())
+        writer.Write()

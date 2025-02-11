@@ -21,11 +21,11 @@ def dQtimesv(q1, q2, q3, q4, q5, v1, v2, v3,
              dq1, dq2, dq3, dq4, dq5, dv1, dv2, dv3):
     """Compute variation of Q*v (by Leibniz's rule)"""
     return (q1 - q3) * dv1 + q2 * dv2 + q4 * dv3 \
-           + (dq1 - dq3) * v1 + dq2 * v2 + dq4 * v3, \
-           q2 * dv1 + (-q1 - q3) * dv2 + q5 * dv3 \
-           + dq2 * v1 + (-dq1 - dq3) * v2 + dq5 * v3, \
-           q4 * dv1 + q5 * dv2 + 2 * q3 * dv3 \
-           + dq4 * v1 + dq5 * v2 + 2 * dq3 * v3
+        + (dq1 - dq3) * v1 + dq2 * v2 + dq4 * v3, \
+        q2 * dv1 + (-q1 - q3) * dv2 + q5 * dv3 \
+        + dq2 * v1 + (-dq1 - dq3) * v2 + dq5 * v3, \
+        q4 * dv1 + q5 * dv2 + 2 * q3 * dv3 \
+        + dq4 * v1 + dq5 * v2 + 2 * dq3 * v3
 
 
 @profiler
@@ -73,7 +73,7 @@ class LCConfig(dict):
 
     def __init__(self, **kwargs):
         p_default = {'A': -3900, 'B': 6400, 'C': 3500, 'L': 4e-11,
-                     'lam': 1e-6, 'v0': 0.04,
+                     'lam': 5, 'v0': 0.04,
                      'eps': .01, 'omega': 5, 'wp': 1, 'wv': 1}
         p_default.update(kwargs)
         super().__init__(**p_default)
@@ -105,7 +105,7 @@ def load_lc_config(fn):
 
 class LCFunc_s:
     def __init__(self, **kwargs):
-        self.conf = LCConfig(A=-1500, lam=2e-7, v0=0.1,
+        self.conf = LCConfig(A=-1500, lam=5., v0=0.1,
                              eps=0.005, omega=20, wp=1, wv=0.5)
         self.conf.update(kwargs)
         self.reset_params(**self.conf)
@@ -113,10 +113,10 @@ class LCFunc_s:
 
     @profiler
     def reset_params(self, show=False, A=-3900., B=6400., C=3500., L=4e-11,
-                     lam=1e-6, v0=.04, eps=.01,
+                     lam=5., v0=.04, eps=.01,
                      omega=5, wp=1, wv=1):
         # Compute nondimensional coefficients
-        barlam = lam * np.sqrt(C / L)
+        # barlam = lam * np.sqrt(C / L)
         sp = (B + np.sqrt(B * B - 24 * A * C)) / 4 / C  # s_plus
         bmin = sp**2 * (9 * A - B * sp) / 54  # minimum of bulk
 
@@ -134,9 +134,10 @@ class LCFunc_s:
             print("      ⎧")
             print(" + w₂ ⎪   [ κ⁻¹·(1-φ)²·|Q|²/2 + κ·|∇Q|²/2 ] dx")
             print("      ⎭ Ω")
-            print("with\tλ  = %.3e" % barlam)
-            print("\tw₁ = %.3e\n\tw₂ = %.3e\n\tε = %.3e\n\tω = %.3e\n\tκ = √(ε) = %.3e"
+            print("with\tλ  = %f" % lam)
+            print("\tw₁ = %f\n\tw₂ = %f\n\tε = %f\n\tω = %f\n\tκ = √(ε) = %f"
                   % (wp, wv, eps, omega, np.sqrt(eps)))
+            print("physical scale %.3e m" % (lam * np.sqrt(L / C)))
 
         # Compute coefficients
         self.conf = LCConfig(A=A, B=B, C=C, L=L,
@@ -145,8 +146,8 @@ class LCFunc_s:
         self.sp = sp
         self.v0 = v0
         self.bmin = bmin / C  # minimum of \bar{F}_b
-        self.we = 1 / barlam  # elastic energy 1/2*φ^2*|∇Q|^2
-        self.wb = barlam  # bulk energy \bar{F}_b
+        self.we = 1 / lam  # elastic energy 1/2*φ^2*|∇Q|^2
+        self.wb = lam  # bulk energy \bar{F}_b
         self.wb2 = A / C  # tr(Q^2)/2 in bulk
         self.wb3 = -B / C  # tr(Q^3)/3 in bulk
         self.wv = wv / np.sqrt(eps)  # 1/2*(1-φ)^2|Q^2| in void
@@ -245,9 +246,9 @@ class LCFunc_s:
         if part == 'e' or part == 'all':
             # elastic energy
             E += self.we * h3 * \
-                 np.sum(phi**2 * (xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2
-                                  + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2
-                                  + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2))
+                np.sum(phi**2 * (xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2
+                                 + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2
+                                 + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2))
         if part == 'b' or part == 'all':
             # bulk energy
             trQ3 = trace_Q3(q1, q2, q3, q4, q5)
@@ -262,7 +263,7 @@ class LCFunc_s:
             # anchoring energy
             x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, xvx.phi, xvy.phi, xvz.phi)
             anch_0 = x1**2 + x2**2 + x3**2 + \
-                     2 / 3 * self.sp * (x1 * xvx.phi + x2 * xvy.phi + x3 * xvz.phi)
+                2 / 3 * self.sp * (x1 * xvx.phi + x2 * xvy.phi + x3 * xvz.phi)
             E += self.wa * (h3 * np.sum(anch_0) + self.sp**2 / 9 * np.sum(self.aux.c_lap * x.phi**2))
         if part == 'v' or part == 'all':
             # void energy
@@ -316,9 +317,9 @@ class LCFunc_s:
             # LdG elastic (now with mask, so evaluate with adjoints)
             for i in range(5):
                 g.x4[i, :] = (2 if i != 2 else 6) * self.we * h3 * np.pi * (
-                        self.aux.k1 * cos_trans(phi**2 * xvx.x4[i, :], axis=0)
-                        + self.aux.k2 * cos_trans(phi**2 * xvy.x4[i, :], axis=1)
-                        + self.aux.k3 * cos_trans(phi**2 * xvz.x4[i, :], axis=2)
+                    self.aux.k1 * cos_trans(phi**2 * xvx.x4[i, :], axis=0)
+                    + self.aux.k2 * cos_trans(phi**2 * xvy.x4[i, :], axis=1)
+                    + self.aux.k3 * cos_trans(phi**2 * xvz.x4[i, :], axis=2)
                 )
                 # Laplacian from void
                 g.x4[i, :] += (2 if i != 2 else 6) * self.wv1 * self.aux.c_lap * x.x4[i, :]
@@ -331,44 +332,44 @@ class LCFunc_s:
                        2 * x2 + self.sp * 4 / 3 * xvy.phi,
                        2 * x3 + self.sp * 4 / 3 * xvz.phi)
             g.phi[:] += self.wa * h3 * np.pi * \
-                        (self.aux.k1 * cos_trans(d_a0_d_phix, axis=0)
-                         + self.aux.k2 * cos_trans(d_a0_d_phiy, axis=1)
-                         + self.aux.k3 * cos_trans(d_a0_d_phiz, axis=2))
+                (self.aux.k1 * cos_trans(d_a0_d_phix, axis=0)
+                 + self.aux.k2 * cos_trans(d_a0_d_phiy, axis=1)
+                 + self.aux.k3 * cos_trans(d_a0_d_phiz, axis=2))
         if part != 0:
             # LdG bulk over Q
             QpA_C = trQ2 + self.wb2
             g_v.q1[:] += self.wb * h3 * phi**2 * \
-                         (2 * QpA_C * q1 + self.wb3 * (-4 * q3 * q1 - q5 * q5 + q4 * q4))
+                (2 * QpA_C * q1 + self.wb3 * (-4 * q3 * q1 - q5 * q5 + q4 * q4))
             g_v.q3[:] += self.wb * h3 * phi**2 * \
-                         (6 * QpA_C * q3 + self.wb3 * (6 * q3 * q3 - 2 * q1 * q1
-                                                       + q5 * q5 + q4 * q4 - 2 * q2 * q2))
+                (6 * QpA_C * q3 + self.wb3 * (6 * q3 * q3 - 2 * q1 * q1
+                                              + q5 * q5 + q4 * q4 - 2 * q2 * q2))
             g_v.q2[:] += self.wb * h3 * phi**2 * \
-                         (2 * QpA_C * q2 + self.wb3 * (2 * q4 * q5 - 4 * q3 * q2))
+                (2 * QpA_C * q2 + self.wb3 * (2 * q4 * q5 - 4 * q3 * q2))
             g_v.q4[:] += self.wb * h3 * phi**2 * \
-                         (2 * QpA_C * q4 + self.wb3 * (2 * q2 * q5 + 2 * (q1 + q3) * q4))
+                (2 * QpA_C * q4 + self.wb3 * (2 * q2 * q5 + 2 * (q1 + q3) * q4))
             g_v.q5[:] += self.wb * h3 * phi**2 * \
-                         (2 * QpA_C * q5 + self.wb3 * (2 * q2 * q4 - 2 * (q1 - q3) * q5))
+                (2 * QpA_C * q5 + self.wb3 * (2 * q2 * q4 - 2 * (q1 - q3) * q5))
             # elastic and bulk over phi
             g_v.phi[:] = 2 * h3 * phi * (self.we * elastic + self.wb * bulk)
             # mixing energy
             g_v.phi[:] += 4 * self.wp0 * h3 * \
-                          phi * (phi - 1) * (phi - .5)
+                phi * (phi - 1) * (phi - .5)
             # anchoring over Q
             g_v.q1[:] += h3 * self.wa * \
-                         (2 * (x1 * xvx.phi - x2 * xvy.phi)
-                          + self.sp * 2 / 3 * (xvx.phi**2 - xvy.phi**2))
+                (2 * (x1 * xvx.phi - x2 * xvy.phi)
+                 + self.sp * 2 / 3 * (xvx.phi**2 - xvy.phi**2))
             g_v.q3[:] += h3 * self.wa * \
-                         (2 * (-x1 * xvx.phi - x2 * xvy.phi + 2 * x3 * xvz.phi)
-                          + self.sp * 2 / 3 * (-xvx.phi**2 - xvy.phi**2 + 2 * xvz.phi**2))
+                (2 * (-x1 * xvx.phi - x2 * xvy.phi + 2 * x3 * xvz.phi)
+                 + self.sp * 2 / 3 * (-xvx.phi**2 - xvy.phi**2 + 2 * xvz.phi**2))
             g_v.q2[:] += h3 * self.wa * \
-                         (2 * (x1 * xvy.phi + x2 * xvx.phi)
-                          + self.sp * 4 / 3 * xvx.phi * xvy.phi)
+                (2 * (x1 * xvy.phi + x2 * xvx.phi)
+                 + self.sp * 4 / 3 * xvx.phi * xvy.phi)
             g_v.q4[:] += h3 * self.wa * \
-                         (2 * (x1 * xvz.phi + x3 * xvx.phi)
-                          + self.sp * 4 / 3 * xvx.phi * xvz.phi)
+                (2 * (x1 * xvz.phi + x3 * xvx.phi)
+                 + self.sp * 4 / 3 * xvx.phi * xvz.phi)
             g_v.q5[:] += h3 * self.wa * \
-                         (2 * (x2 * xvz.phi + x3 * xvy.phi)
-                          + self.sp * 4 / 3 * xvy.phi * xvz.phi)
+                (2 * (x2 * xvz.phi + x3 * xvy.phi)
+                 + self.sp * 4 / 3 * xvy.phi * xvz.phi)
             # void
             g_v.phi[:] += self.wv * h3 * (phi - 1) * trQ2
             for i in range(5):
@@ -404,7 +405,7 @@ class LCFunc_s:
         """Compute Hessian as implicit matrix (LinearOperator instance)
 
         E = E1(∇Q,φ) + E2(Q,∇φ) + E3(Q,φ)
-        
+
         2nd variation of E1 over Q, and E2 over φ are linear diffusion operators
         rest of E1 and E2 are nonlinear terms
         variation of E3 is entirely local (i.e. concerning values only)
@@ -435,8 +436,8 @@ class LCFunc_s:
         phiz = xvz.phi
         x1, x2, x3 = Qtimes(q1, q2, q3, q4, q5, phix, phiy, phiz)
         elastic = xvx.q1**2 + xvx.q2**2 + 3 * xvx.q3**2 + xvx.q4**2 + xvx.q5**2 \
-                  + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2 \
-                  + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2
+            + xvy.q1**2 + xvy.q2**2 + 3 * xvy.q3**2 + xvy.q4**2 + xvy.q5**2 \
+            + xvz.q1**2 + xvz.q2**2 + 3 * xvz.q3**2 + xvz.q4**2 + xvz.q5**2
 
         @profiler
         def dd_E1(dq, dphiv=None, linear=True):
@@ -469,11 +470,11 @@ class LCFunc_s:
                     dphiv.shape = (N, N, N)
                     # include terms of dphi as well
                     y[i] = (2 if i != 2 else 6) * (
-                            self.we * h3 * np.pi * (
+                        self.we * h3 * np.pi * (
                             self.aux.k1 * cos_trans(phi * (phi * dqx_v + 2 * xvx.x4[i] * dphiv), axis=0)
                             + self.aux.k2 * cos_trans(phi * (phi * dqy_v + 2 * xvy.x4[i] * dphiv), axis=1)
                             + self.aux.k3 * cos_trans(phi * (phi * dqz_v + 2 * xvz.x4[i] * dphiv), axis=2))
-                            + self.wv1 * self.aux.c_lap * dq[i])
+                        + self.wv1 * self.aux.c_lap * dq[i])
             if not linear:
                 # 2nd variation of the phi-variation in function values
                 z = 2 * self.we * h3 * (dphiv * elastic + phi * d_elastic)
@@ -521,9 +522,9 @@ class LCFunc_s:
                 dd_a0_d_phiy += dd_a0_d_phiy_nonlin
                 dd_a0_d_phiz += dd_a0_d_phiz_nonlin
             y += self.wa * h3 * np.pi * \
-                 (self.aux.k1 * cos_trans(dd_a0_d_phix, axis=0)
-                  + self.aux.k2 * cos_trans(dd_a0_d_phiy, axis=1)
-                  + self.aux.k3 * cos_trans(dd_a0_d_phiz, axis=2))
+                (self.aux.k1 * cos_trans(dd_a0_d_phix, axis=0)
+                 + self.aux.k2 * cos_trans(dd_a0_d_phiy, axis=1)
+                 + self.aux.k3 * cos_trans(dd_a0_d_phiz, axis=2))
             if not linear:
                 # 2nd variation of the Q-variation in function values
                 dx1 = dx1_lin + dx1_nonlin
@@ -537,7 +538,7 @@ class LCFunc_s:
                     (-dx1 * phix - x1 * dphix_v - dx2 * phiy - x2 * dphiy_v
                      + 2 * (dx3 * phiz + x3 * dphiz_v))
                     + self.sp * 2 / 3 * (
-                            -phix * dphix_v - phiy * dphiy_v + 2 * phiz * dphiz_v),
+                        -phix * dphix_v - phiy * dphiy_v + 2 * phiz * dphiz_v),
                     (dx1 * phiz + x1 * dphiz_v + dx3 * phix + x3 * dphix_v)
                     + self.sp * 2 / 3 * (dphix_v * phiz + phix * dphiz_v),
                     (dx2 * phiz + x2 * dphiz_v + dx3 * phiy + x3 * dphiy_v)
@@ -576,7 +577,7 @@ class LCFunc_s:
                 y, z = dd_E2(dx.phi, dxv.x4[0:5], linear=False)
                 dg.phi[:] += y
                 dg_v.x4[0:5] += z
-                ## The energy E3(Q,φ) (local terms)
+                # The energy E3(Q,φ) (local terms)
                 # LdG bulk
                 dg_v.q1[:] += 2 * self.wb * h3 * (phi**2 *
                                                   (QpA_C * dxv.q1 + dtrQ2 * q1
@@ -613,7 +614,7 @@ class LCFunc_s:
                 # penalty from void
                 for i in range(5):
                     dg_v.x4[i] += (2 if i != 2 else 6) * self.wv * h3 * (
-                            (1 - phi)**2 * dxv.x4[i] + 2 * (phi - 1) * xv.x4[i] * dxv.phi)
+                        (1 - phi)**2 * dxv.x4[i] + 2 * (phi - 1) * xv.x4[i] * dxv.phi)
                 dg_v.phi[:] += self.wv * h3 * (dxv.phi * trQ2 + (phi - 1) * dtrQ2)
 
                 # chain rule: apply (adjoint) DST to value derivatives
@@ -657,9 +658,9 @@ class LCFunc_s:
         # Its gradient equals
         # 2*wa* pi^2/8 * (A11*k1**2+A22*k2**2+A33*k3**2) * phi
         c_ell = self.wp1 * self.aux.c_lap + \
-                .25 * self.wa * np.pi**2 * (A11 * self.aux.k1**2
-                                            + A22 * self.aux.k2**2
-                                            + A33 * self.aux.k3**2)
+            .25 * self.wa * np.pi**2 * (A11 * self.aux.k1**2
+                                        + A22 * self.aux.k2**2
+                                        + A33 * self.aux.k3**2)
 
         def _matvec(v):
             nonlocal self
@@ -678,13 +679,14 @@ class LCFunc_s:
 
 
 def test_grad(FF: LCFunc_s, X: LCState_s, n=5):
+    g = FF.grad_vec(X.x, X.N, proj=False)
     for _ in range(n):
         v = np.random.randn(len(X.x))
         v /= norm(v)
+        gdotv = np.dot(g, v)
         for eps in 1e-2, 1e-3, 1e-4, 1e-5, 1e-6:
             dfdv = (FF.energy_vec(X.x + eps * v, X.N, proj=False)
                     - FF.energy_vec(X.x - eps * v, X.N, proj=False)) / 2 / eps
-            gdotv = np.dot(FF.grad_vec(X.x, X.N, proj=False), v)
             print(np.log10(norm(dfdv - gdotv)), end=' ')
         print()
 
